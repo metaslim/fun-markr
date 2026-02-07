@@ -41,17 +41,20 @@ Examples:
 - "How many students are there?" → [CALL:listStudents:]
 
 ## NAVIGATION LINKS
-Use [[/path]] to create clickable links:
+Use [[/path]] to create clickable links. IMPORTANT: Student links MUST use student_number (numeric ID), NOT names!
+
+Valid links:
 - [[/tests]] - all tests
-- [[/tests/9863]] - specific test
+- [[/tests/9863]] - specific test (use test_id number)
 - [[/tests/9863/students]] - students in test
 - [[/students]] - all students
-- [[/students/002299]] - specific student
+- [[/students/002299]] - specific student (use student_number like 002299, 2300, etc.)
 - [[/import]] - import page
 
-Always suggest relevant links after answering! Example: "View details at [[/students/002299]]"
+WRONG: [[/students/Byron_Penelope]] - names don't work!
+RIGHT: [[/students/2392]] - use the numeric student_number
 
-Be concise but always provide actionable next steps.`;
+Always suggest relevant links after answering with correct IDs from function results.`;
 
 
 export function ChatAgent() {
@@ -263,21 +266,21 @@ export function ChatAgent() {
           const result = await getTestStudents(testId);
           const top5 = result.students.slice(0, 5);
           const bottom5 = result.students.slice(-5).reverse();
-          const formatStudent = (s: typeof result.students[0]) => `${s.student_name || s.student_number} (${s.percentage}%)`;
-          return `Test ${testId} has ${result.count} students. Top 5: ${top5.map(formatStudent).join(', ')}. Bottom 5: ${bottom5.map(formatStudent).join(', ')}`;
+          const formatStudent = (s: typeof result.students[0]) => `${s.student_name || 'Unknown'} (ID: ${s.student_number}, ${s.percentage}%)`;
+          return `Test ${testId} has ${result.count} students. Top 5: ${top5.map(formatStudent).join(', ')}. Bottom 5: ${bottom5.map(formatStudent).join(', ')}. Use student_number (ID) for links like [[/students/ID]]`;
         }
         case 'listStudents': {
           const result = await listStudents();
           if (result.students.length === 0) return 'No students found. Import some test results first.';
           const sample = result.students.slice(0, 10);
-          return `Total: ${result.count} students. First 10: ${sample.map(s => `${s.name || 'Unknown'} (${s.student_number})`).join(', ')}${result.count > 10 ? '...' : ''}`;
+          return `Total: ${result.count} students. First 10: ${sample.map(s => `${s.name || 'Unknown'} (ID: ${s.student_number})`).join(', ')}${result.count > 10 ? '...' : ''}. Use ID numbers for links like [[/students/002299]]`;
         }
         case 'getStudent': {
           const studentNum = arg.trim();
           if (!studentNum) return 'Error: No student number provided';
           const result = await getStudent(studentNum);
-          const studentName = result.results[0]?.student_name || studentNum;
-          return `${studentName} (${studentNum}) has ${result.count} test(s): ${result.results.map(r => `Test ${r.test_id}: ${r.marks_obtained}/${r.marks_available} (${r.percentage}%)`).join(', ')}`;
+          const studentName = result.results[0]?.student_name || 'Unknown';
+          return `${studentName} (ID: ${studentNum}) has ${result.count} test(s): ${result.results.map(r => `Test ${r.test_id}: ${r.marks_obtained}/${r.marks_available} (${r.percentage}%)`).join(', ')}. Link: [[/students/${studentNum}]]`;
         }
         case 'getStudentResult': {
           const [studentNum, testId] = arg.split(',').map(s => s.trim());

@@ -13,4 +13,5 @@ group :development, :test do
   gem 'rack-test'
   gem 'factory_bot'
   gem 'database_cleaner-sequel'
+  gem 'sqlite3'
 end

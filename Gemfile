@@ -7,6 +7,8 @@ gem 'puma'
 gem 'nokogiri'
 gem 'sequel'
 gem 'pg'
+gem 'sidekiq'
+gem 'redis'
 
 group :development, :test do
   gem 'rspec'

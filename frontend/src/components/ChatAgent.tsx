@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import * as webllm from '@mlc-ai/web-llm';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useContextStore } from '../stores/contextStore';
 import { listTests, getAggregate, healthCheck, getStudent, getStudentTestResult, getTestStudents, listStudents } from '../services/api';
 
@@ -41,20 +42,22 @@ Examples:
 - "How many students are there?" → [CALL:listStudents:]
 
 ## NAVIGATION LINKS
-Use [[/path]] to create clickable links. IMPORTANT: Student links MUST use student_number (numeric ID), NOT names!
+Use markdown links with format: [Display Text](/path)
 
-Valid links:
-- [[/tests]] - all tests
-- [[/tests/9863]] - specific test (use test_id number)
-- [[/tests/9863/students]] - students in test
-- [[/students]] - all students
-- [[/students/002299]] - specific student (use student_number like 002299, 2300, etc.)
-- [[/import]] - import page
+Examples:
+- [View all tests](/tests)
+- [Test 9863](/tests/9863)
+- [Students in test](/tests/9863/students)
+- [All students](/students)
+- [John Smith](/students/002299) - use NAME as text, ID in path
+- [Import](/import)
 
-WRONG: [[/students/Byron_Penelope]] - names don't work!
-RIGHT: [[/students/2392]] - use the numeric student_number
+IMPORTANT for student links:
+- Display the student's NAME as link text
+- Use the numeric student_number (ID) in the URL path
+- Example: [Byron Penelope](/students/2392) NOT [2392](/students/2392)
 
-Always suggest relevant links after answering with correct IDs from function results.`;
+Always provide helpful links with descriptive text after answering!`;
 
 
 export function ChatAgent() {
@@ -253,12 +256,13 @@ export function ChatAgent() {
           const testId = arg.trim();
           if (!testId) return 'Error: No test ID provided';
           const data = await getAggregate(testId);
-          return `Test ${testId}: ${data.count} students, mean: ${data.mean.toFixed(1)}%, min: ${data.min.toFixed(1)}%, max: ${data.max.toFixed(1)}%, median: ${data.p50.toFixed(1)}%, std dev: ${data.stddev.toFixed(1)}, P25: ${data.p25.toFixed(1)}%, P75: ${data.p75.toFixed(1)}%`;
+          return `**[Test ${testId}](/tests/${testId})** Statistics:\n\n| Metric | Value |\n|--------|-------|\n| Students | ${data.count} |\n| Mean | ${data.mean.toFixed(1)}% |\n| Min | ${data.min.toFixed(1)}% |\n| Max | ${data.max.toFixed(1)}% |\n| Median | ${data.p50.toFixed(1)}% |\n| Std Dev | ${data.stddev.toFixed(1)} |\n| P25 | ${data.p25.toFixed(1)}% |\n| P75 | ${data.p75.toFixed(1)}% |\n\n[View students](/tests/${testId}/students)`;
         }
         case 'listTests': {
           const result = await listTests();
-          if (result.tests.length === 0) return 'No tests available. Import some test results first.';
-          return `Available tests: ${result.tests.map(t => `Test ${t.test_id} (${t.count} students, ${t.mean.toFixed(1)}% avg)`).join(', ')}`;
+          if (result.tests.length === 0) return 'No tests available. [Import some results](/import) first.';
+          const testList = result.tests.map(t => `[Test ${t.test_id}](/tests/${t.test_id}) - ${t.count} students, ${t.mean.toFixed(1)}% avg`).join('\n- ');
+          return `**${result.tests.length} tests available:**\n\n- ${testList}`;
         }
         case 'getTestStudents': {
           const testId = arg.trim();
@@ -266,21 +270,22 @@ export function ChatAgent() {
           const result = await getTestStudents(testId);
           const top5 = result.students.slice(0, 5);
           const bottom5 = result.students.slice(-5).reverse();
-          const formatStudent = (s: typeof result.students[0]) => `${s.student_name || 'Unknown'} (ID: ${s.student_number}, ${s.percentage}%)`;
-          return `Test ${testId} has ${result.count} students. Top 5: ${top5.map(formatStudent).join(', ')}. Bottom 5: ${bottom5.map(formatStudent).join(', ')}. Use student_number (ID) for links like [[/students/ID]]`;
+          const formatStudent = (s: typeof result.students[0]) => `[${s.student_name || 'Unknown'}](/students/${s.student_number}) (${s.percentage}%)`;
+          return `Test ${testId} has ${result.count} students.\n\n**Top 5:** ${top5.map(formatStudent).join(', ')}\n\n**Bottom 5:** ${bottom5.map(formatStudent).join(', ')}`;
         }
         case 'listStudents': {
           const result = await listStudents();
           if (result.students.length === 0) return 'No students found. Import some test results first.';
           const sample = result.students.slice(0, 10);
-          return `Total: ${result.count} students. First 10: ${sample.map(s => `${s.name || 'Unknown'} (ID: ${s.student_number})`).join(', ')}${result.count > 10 ? '...' : ''}. Use ID numbers for links like [[/students/002299]]`;
+          return `Total: **${result.count} students**.\n\nFirst 10: ${sample.map(s => `[${s.name || 'Unknown'}](/students/${s.student_number})`).join(', ')}${result.count > 10 ? '...' : ''}\n\n[View all students](/students)`;
         }
         case 'getStudent': {
           const studentNum = arg.trim();
           if (!studentNum) return 'Error: No student number provided';
           const result = await getStudent(studentNum);
           const studentName = result.results[0]?.student_name || 'Unknown';
-          return `${studentName} (ID: ${studentNum}) has ${result.count} test(s): ${result.results.map(r => `Test ${r.test_id}: ${r.marks_obtained}/${r.marks_available} (${r.percentage}%)`).join(', ')}. Link: [[/students/${studentNum}]]`;
+          const testResults = result.results.map(r => `[Test ${r.test_id}](/tests/${r.test_id}): ${r.marks_obtained}/${r.marks_available} (${r.percentage}%)`).join(', ');
+          return `**[${studentName}](/students/${studentNum})** has ${result.count} test(s):\n\n${testResults}`;
         }
         case 'getStudentResult': {
           const [studentNum, testId] = arg.split(',').map(s => s.trim());
@@ -447,6 +452,7 @@ export function ChatAgent() {
                         // Render markdown with custom link handling
                         <div className="prose prose-sm prose-gray max-w-none">
                           <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
                             components={{
                               // Custom link renderer for navigation
                               a: ({ href, children }) => {
@@ -473,10 +479,38 @@ export function ChatAgent() {
                               // Style lists
                               ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
                               ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
+                              // Style tables
+                              table: ({ children }) => (
+                                <div className="overflow-x-auto my-2">
+                                  <table className="min-w-full text-xs border-collapse">{children}</table>
+                                </div>
+                              ),
+                              thead: ({ children }) => <thead className="bg-gray-100">{children}</thead>,
+                              tbody: ({ children }) => <tbody className="divide-y divide-gray-200">{children}</tbody>,
+                              tr: ({ children }) => <tr className="hover:bg-gray-50">{children}</tr>,
+                              th: ({ children }) => (
+                                <th className="px-2 py-1.5 text-left font-semibold text-gray-700 border-b border-gray-300">{children}</th>
+                              ),
+                              td: ({ children }) => (
+                                <td className="px-2 py-1.5 text-gray-600 border-b border-gray-100">{children}</td>
+                              ),
+                              // Style headings
+                              h1: ({ children }) => <h1 className="text-base font-bold mb-2">{children}</h1>,
+                              h2: ({ children }) => <h2 className="text-sm font-bold mb-2">{children}</h2>,
+                              h3: ({ children }) => <h3 className="text-sm font-semibold mb-1">{children}</h3>,
+                              // Style blockquotes
+                              blockquote: ({ children }) => (
+                                <blockquote className="border-l-2 border-emerald-300 pl-3 my-2 text-gray-600 italic">{children}</blockquote>
+                              ),
+                              // Style horizontal rules
+                              hr: () => <hr className="my-2 border-gray-200" />,
+                              // Style strong/bold
+                              strong: ({ children }) => <strong className="font-semibold text-gray-900">{children}</strong>,
+                              // Style emphasis/italic
+                              em: ({ children }) => <em className="italic">{children}</em>,
                             }}
                           >
-                            {/* Convert [[route]] syntax to markdown links */}
-                            {msg.content.replace(/\[\[(\/[^\]]+)\]\]/g, '[$1]($1)')}
+                            {msg.content}
                           </ReactMarkdown>
                         </div>
                       ) : (

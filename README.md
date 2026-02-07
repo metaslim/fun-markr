@@ -17,8 +17,11 @@ curl http://localhost:4567/health
 ### With Docker (Recommended)
 
 ```bash
-# Build and start all services
+# Build and start all services (first time)
 docker-compose up --build
+
+# Force rebuild after code changes
+docker-compose build --no-cache && docker-compose up
 
 # Or run in background
 docker-compose up -d
@@ -191,7 +194,7 @@ The current implementation calculates aggregations on-demand. For future real-ti
 
 ### Test Coverage
 
-95 automated tests covering:
+110 automated tests covering:
 - Unit tests for models, loaders, aggregators
 - Integration tests for API endpoints
 - Edge cases (duplicates, validation, empty data)

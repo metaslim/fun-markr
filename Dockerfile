@@ -20,9 +20,6 @@ COPY . .
 # Expose port
 EXPOSE 4567
 
-# Health check
+# Health check (for app service)
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:4567/health || exit 1
-
-# Run the app
-CMD ["bundle", "exec", "ruby", "app.rb", "-o", "0.0.0.0"]

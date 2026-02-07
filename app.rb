@@ -10,6 +10,8 @@ class App < Sinatra::Base
     set :database_url, ENV.fetch('DATABASE_URL', 'sqlite://db/markr_dev.db')
     # Disable rack-protection host authorization for API usage
     set :host_authorization, { permitted_hosts: [] }
+    # Bind to all interfaces for Docker
+    set :bind, '0.0.0.0'
   end
 
   def self.database

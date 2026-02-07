@@ -1,8 +1,9 @@
 source 'https://rubygems.org'
 
-ruby '3.4.7'
+ruby '>= 3.4'
 
 gem 'sinatra'
+gem 'rackup'
 gem 'puma'
 gem 'nokogiri'
 gem 'sequel'

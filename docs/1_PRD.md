@@ -119,6 +119,65 @@ Exam scanning machines produce test results in various formats (initially XML). 
 
 ---
 
+## Future Scalability Considerations
+
+> The current visualisation solution generates printed & mailed reports overnight, so aggregate fetching doesn't need to be fast. However, real-time dashboards are planned for City Hall - worth considering even if the prototype is simple.
+
+### Current State (Prototype)
+- Synchronous import processing
+- Aggregations calculated on-demand from database
+- Acceptable for overnight batch reports
+
+### Future State (Real-time Dashboards)
+
+**Challenge:** Real-time dashboards require fast aggregate queries even with millions of records.
+
+**Recommended Architecture:**
+
+1. **Async Import Processing**
+   - Import endpoint returns `202 Accepted` immediately
+   - Background worker (Sidekiq/Resque) processes XML
+   - Enables handling large batch imports without timeout
+   ```
+   POST /import → 202 Accepted { "job_id": "abc123" }
+   GET /jobs/abc123 → { "status": "completed", "imported": 500 }
+   ```
+
+2. **Pre-computed Aggregates**
+   - Maintain `test_aggregates` table with cached statistics
+   - Update incrementally on each import (not full recalculation)
+   - Aggregation endpoint reads from cache, returns instantly
+   ```sql
+   CREATE TABLE test_aggregates (
+     test_id VARCHAR PRIMARY KEY,
+     count INTEGER,
+     sum_percentage DECIMAL,
+     sum_squared DECIMAL,  -- for stddev
+     min_percentage DECIMAL,
+     max_percentage DECIMAL,
+     percentiles JSONB,    -- pre-computed p25, p50, p75
+     updated_at TIMESTAMP
+   );
+   ```
+
+3. **Event-Driven Updates**
+   - Publish events on import: `test_result.imported`
+   - Aggregate service subscribes and updates cache
+   - Enables real-time dashboard updates via WebSocket
+
+4. **Read Replicas**
+   - Separate read/write databases
+   - Dashboard queries hit read replica
+   - Imports go to primary
+
+**Migration Path:**
+1. Phase 1 (current): Synchronous, on-demand calculation
+2. Phase 2: Add background jobs for imports
+3. Phase 3: Add aggregate caching
+4. Phase 4: Add WebSocket for real-time updates
+
+---
+
 ## Acceptance Criteria
 
 ### AC1: Basic Import

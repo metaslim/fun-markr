@@ -1,4 +1,4 @@
-import type { TestAggregate, JobStatus } from '../types';
+import type { TestAggregate, JobStatus, TestListResponse, StudentResponse, StudentResult, TestStudentsResponse, StudentListResponse } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4567';
 const AUTH = btoa(`${import.meta.env.VITE_API_USER || 'markr'}:${import.meta.env.VITE_API_PASS || 'secret'}`);
@@ -44,6 +44,55 @@ export async function importResults(xmlContent: string): Promise<JobStatus> {
 
 export async function healthCheck(): Promise<{ status: string }> {
   const response = await fetch(`${API_BASE}/health`);
+  return response.json();
+}
+
+export async function listTests(): Promise<TestListResponse> {
+  const response = await fetch(`${API_BASE}/tests`, { headers });
+  if (!response.ok) {
+    throw new Error(`Failed to list tests: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function listStudents(): Promise<StudentListResponse> {
+  const response = await fetch(`${API_BASE}/students`, { headers });
+  if (!response.ok) {
+    throw new Error(`Failed to list students: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function getStudent(studentNumber: string): Promise<StudentResponse> {
+  const response = await fetch(`${API_BASE}/students/${studentNumber}`, { headers });
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error(`Student ${studentNumber} not found`);
+    }
+    throw new Error(`Failed to fetch student: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function getStudentTestResult(studentNumber: string, testId: string): Promise<StudentResult> {
+  const response = await fetch(`${API_BASE}/students/${studentNumber}/tests/${testId}`, { headers });
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error(`Result not found for student ${studentNumber} on test ${testId}`);
+    }
+    throw new Error(`Failed to fetch result: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function getTestStudents(testId: string): Promise<TestStudentsResponse> {
+  const response = await fetch(`${API_BASE}/tests/${testId}/students`, { headers });
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error(`Test ${testId} not found or no students`);
+    }
+    throw new Error(`Failed to fetch students: ${response.statusText}`);
+  }
   return response.json();
 }
 

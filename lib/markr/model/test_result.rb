@@ -1,11 +1,12 @@
 module Markr
   module Model
     class TestResult
-      attr_accessor :id, :student_number, :test_id,
+      attr_accessor :id, :student_number, :student_name, :test_id,
                     :marks_available, :marks_obtained, :scanned_on
 
       def initialize(attributes = {})
         @student_number = attributes[:student_number]
+        @student_name = attributes[:student_name]
         @test_id = attributes[:test_id]
         @marks_available = attributes[:marks_available]
         @marks_obtained = attributes[:marks_obtained]

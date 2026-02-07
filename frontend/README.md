@@ -1,73 +1,75 @@
-# React + TypeScript + Vite
+# Markr Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React dashboard for the Markr test results microservice.
 
-Currently, two official plugins are available:
+## Quick Start
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Open http://localhost:5173
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Features
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+- **Dashboard**: Overview of all tests with aggregate stats
+- **Test List**: Browse all tests
+- **Test Detail**: Statistics, charts, score distribution
+- **Test Students**: View all students in a test with rankings
+- **Student List**: Browse all students with search
+- **Student Detail**: Individual student's test history
+- **Import**: Upload XML files with real-time job status polling
+- **AI Assistant**: Local LLM (Llama 3.2 3B) for help and data queries
+
+## Tech Stack
+
+- React 18 + TypeScript
+- Vite
+- Tailwind CSS
+- React Router
+- Recharts (visualizations)
+- WebLLM (local AI)
+- Zustand (state)
+
+## Project Structure
+
+```
+src/
+├── components/
+│   └── ChatAgent.tsx      # AI assistant with function calling
+├── pages/
+│   ├── Home.tsx           # Dashboard
+│   ├── TestList.tsx       # All tests
+│   ├── TestDetail.tsx     # Test stats + charts
+│   ├── TestStudents.tsx   # Students in a test
+│   ├── StudentList.tsx    # All students
+│   ├── StudentDetail.tsx  # Student profile
+│   └── Import.tsx         # XML import
+├── services/
+│   └── api.ts             # API client
+├── stores/
+│   └── contextStore.ts    # AI context + state
+├── types/
+│   └── index.ts           # TypeScript types
+└── App.tsx                # Routes + layout
+```
+
+## Environment
+
+Create `.env` for custom API settings:
+
+```env
+VITE_API_URL=http://localhost:4567
+VITE_API_USER=markr
+VITE_API_PASS=secret
+```
+
+## Scripts
+
+```bash
+npm run dev      # Development server
+npm run build    # Production build
+npm run preview  # Preview production build
+npm run lint     # ESLint
 ```

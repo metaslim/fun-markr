@@ -35,6 +35,17 @@ module Markr
       def exists?(test_id)
         @db[:test_aggregates].where(test_id: test_id).count > 0
       end
+
+      def list_all
+        @db[:test_aggregates]
+          .order(Sequel.desc(:updated_at))
+          .map do |row|
+            data = JSON.parse(row[:data])
+            data['test_id'] = row[:test_id]
+            data['updated_at'] = row[:updated_at]&.iso8601
+            data
+          end
+      end
     end
   end
 end

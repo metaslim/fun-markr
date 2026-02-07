@@ -26,94 +26,51 @@ module Markr
 end
 ```
 
-2. Add to `lib/markr.rb`:
-
-```ruby
-require_relative 'markr/aggregator/median'
-```
-
-3. Add to worker `lib/markr/worker/import_worker.rb`:
-
-```ruby
-.add(Aggregator::Median.new)
-```
-
-4. Add test in `spec/aggregator/median_spec.rb`
+2. Register in `lib/markr.rb` and add to worker's aggregator chain.
 
 No database migration needed - aggregates stored as JSON.
 
 ## Add New Loader (e.g., JSON)
 
-Example: Add JSON loader.
+1. Create `lib/markr/loader/json_loader.rb` implementing `Loadable`
+2. Register in `lib/markr/loader/loader_factory.rb`
+3. Add tests
 
-1. Create `lib/markr/loader/json_loader.rb`:
+## Add New API Endpoint
 
-```ruby
-require 'json'
-require_relative 'loadable'
-require_relative '../model/test_result'
+1. Add route in `app.rb`
+2. Add repository method if needed
+3. Add integration test
 
-module Markr
-  module Loader
-    class JsonLoader < Loadable
-      CONTENT_TYPE = 'application/json'.freeze
+## Add Frontend Page
 
-      def parse(content)
-        data = JSON.parse(content)
-        data['results'].map do |r|
-          validate!(r)
-          Model::TestResult.new(
-            student_number: r['student_number'],
-            test_id: r['test_id'],
-            marks_available: r['marks_available'],
-            marks_obtained: r['marks_obtained']
-          )
-        end
-      end
+1. Create page in `frontend/src/pages/`
+2. Add route in `frontend/src/App.tsx`
+3. Add API function in `frontend/src/services/api.ts`
+4. Update types in `frontend/src/types/index.ts`
 
-      def supported_content_type
-        CONTENT_TYPE
-      end
+## Database Schema
 
-      private
-
-      def validate!(r)
-        raise InvalidDocumentError, 'Missing student_number' unless r['student_number']
-        raise InvalidDocumentError, 'Missing test_id' unless r['test_id']
-        raise InvalidDocumentError, 'Missing marks' unless r['marks_available'] && r['marks_obtained']
-      end
-    end
-  end
-end
 ```
+students
+├── id (PK)
+├── student_number (unique)
+├── name
+└── timestamps
 
-2. Register in `lib/markr/loader/loader_factory.rb`:
+test_results
+├── id (PK)
+├── student_id (FK → students)
+├── test_id
+├── marks_available
+├── marks_obtained
+├── scanned_on
+└── timestamps
 
-```ruby
-require_relative 'json_loader'
-
-LOADERS = [XmlLoader, JsonLoader].freeze
+test_aggregates
+├── test_id (unique)
+└── data (JSON blob)
 ```
-
-3. Add to `lib/markr.rb`:
-
-```ruby
-require_relative 'markr/loader/json_loader'
-```
-
-4. Add tests in `spec/loader/json_loader_spec.rb`
-
-## Add New Endpoint
-
-1. Add route in `app.rb`:
-
-```ruby
-get '/results/:test_id/students' do
-  # your code
-end
-```
-
-2. Add integration test in `spec/integration/api_spec.rb`
 
 ## Key Files
 
@@ -124,17 +81,15 @@ end
 | `lib/markr/loader/` | Parsers (XML, etc.) |
 | `lib/markr/aggregator/` | Stats calculations |
 | `lib/markr/repository/` | Database operations |
-| `db/migrations/` | Schema changes |
+| `db/migrations/` | Schema |
+| `frontend/src/pages/` | React pages |
+| `frontend/src/services/api.ts` | API client |
+| `frontend/src/stores/contextStore.ts` | AI context |
 
 ## Testing
 
 ```bash
 bundle exec rspec                    # All tests
-bundle exec rspec spec/aggregator/   # Aggregator tests only
-bundle exec rspec --format doc       # Verbose output
+bundle exec rspec spec/aggregator/   # Specific folder
+bundle exec rspec --format doc       # Verbose
 ```
-
-## Database
-
-- `test_results` - Raw student scores
-- `test_aggregates` - Pre-computed stats as JSON (no migration needed to add stats)

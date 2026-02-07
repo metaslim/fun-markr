@@ -34,11 +34,27 @@ module Markr
       def build_test_result(node)
         Model::TestResult.new(
           student_number: node.at_xpath('student-number')&.text,
+          student_name: extract_student_name(node),
           test_id: node.at_xpath('test-id')&.text,
           marks_available: node.at_xpath('summary-marks')&.[]('available')&.to_i,
           marks_obtained: node.at_xpath('summary-marks')&.[]('obtained')&.to_i,
           scanned_on: node['scanned-on']
         )
+      end
+
+      def extract_student_name(node)
+        # Try <student-name> first
+        name = node.at_xpath('student-name')&.text
+        return name if name && !name.empty?
+
+        # Fall back to <first-name> + <last-name>
+        first = node.at_xpath('first-name')&.text
+        last = node.at_xpath('last-name')&.text
+
+        return nil if first.nil? && last.nil?
+
+        full_name = [first, last].compact.join(' ').strip
+        full_name.empty? ? nil : full_name
       end
     end
   end

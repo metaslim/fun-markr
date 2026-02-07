@@ -1,24 +1,25 @@
 # Markr
 
-A data ingestion microservice for exam results.
+A data ingestion microservice for exam results with a React dashboard.
 
-## Build & Run Instructions
+## Quick Start
 
 ### Docker (Recommended)
 
 ```bash
-# Start everything
+# Start backend services
 docker-compose up --build
 
-# Or use the all-in-one script
-./scripts/run-all.sh
+# In another terminal, start frontend
+cd frontend && npm install && npm run dev
 ```
 
-This starts:
-- **app** on port 4567
-- **worker** (Sidekiq)
-- **db** (PostgreSQL)
-- **redis**
+Services:
+- **Backend API**: http://localhost:4567
+- **Frontend**: http://localhost:5173
+- **Worker**: Sidekiq (background jobs)
+- **Database**: PostgreSQL
+- **Cache**: Redis
 
 ### Verify It Works
 
@@ -30,173 +31,152 @@ This starts:
 
 ```bash
 docker-compose down
+# Add -v to also remove database volumes
 ```
-
-### Local Development (Without Docker)
-
-```bash
-# Install dependencies
-bundle install
-
-# Terminal 1: Start the app
-bundle exec ruby app.rb
-
-# Terminal 2: Start Sidekiq worker
-bundle exec sidekiq -r ./lib/markr.rb -q imports
-
-# Terminal 3: Run tests
-bundle exec rspec
-```
-
-Requires: Ruby 3.4, PostgreSQL, Redis
 
 ---
 
-## Key Assumptions
+## Architecture
 
-1. **Duplicate Handling**: When a student submits the same test twice, we keep the **highest score**. Rationale: students may re-scan to improve scores.
-
-2. **Document Rejection**: If ANY required field is missing (`student-number`, `test-id`, `summary-marks`), the **entire document is rejected** with HTTP 400. This matches the requirement that rejected documents get printed for manual entry.
-
-3. **Answer Elements Ignored**: We only use `<summary-marks>` for scoring. Individual `<answer>` elements are ignored per the spec.
-
-4. **Percentages**: All aggregation values (except count) are percentages: `(obtained / available) * 100`.
-
-5. **Async Everything**: All imports are processed asynchronously via Sidekiq. This handles large batch imports without timeouts.
-
-6. **Pre-computed Aggregates**: Aggregates are computed during import and stored as JSON. This makes dashboard queries instant and allows adding new stats without schema changes.
-
----
-
-## Approach
-
-### Architecture
+### Backend Flow
 
 ```
-POST /import → Validates XML → Queues to Redis → Returns 202 with job_id
-                                                          ↓
-                                              Poll GET /jobs/:job_id
-                                                          ↓
-Sidekiq Worker → Parses XML → Saves test_results → Computes & saves aggregates (JSON)
-                                                          ↓
-                                              Status: completed
-                                                          ↓
-GET /aggregate → Reads pre-computed JSON from test_aggregates
+POST /import → Validates XML → Queues to Redis → Returns 202 + job_id
+                                    ↓
+                         Sidekiq Worker processes
+                                    ↓
+              Saves to students & test_results tables
+                                    ↓
+              Computes aggregates → Stores as JSON
+                                    ↓
+                         Status: completed
 ```
 
-### Design Decisions
+### Database Schema
 
-- **Sinatra**: Lightweight, perfect for a microservice
-- **Sidekiq + Redis**: Battle-tested async job processing
-- **PostgreSQL**: Reliable, good for production
-- **JSON blob for aggregates**: Extensible without migrations
+```
+students
+├── id (PK)
+├── student_number (unique)
+├── name
+└── timestamps
 
-### Patterns Used
+test_results
+├── id (PK)
+├── student_id (FK → students)
+├── test_id
+├── marks_available
+├── marks_obtained
+├── scanned_on
+└── timestamps
 
-- **Factory**: `LoaderFactory` dispatches by content-type (easy to add JSON/CSV later)
-- **Strategy**: Each aggregator is a single class (Mean, StdDev, Percentile)
-- **Repository**: Abstracts database operations
-- **Composition**: `AggregateReport` uses fluent interface to compose stats
-
----
-
-## Things to Note
-
-### Pre-computed Aggregates
-
-Aggregates are computed by the Sidekiq worker during import and stored as JSON in `test_aggregates`. This means:
-- Dashboard queries are instant (no calculation on read)
-- Adding new stats = update worker code, no schema change
-- Each import recomputes aggregates for affected tests
-
-### Test Coverage
-
-106 automated tests covering unit tests, integration tests, and edge cases.
-
-```bash
-bundle exec rspec
+test_aggregates
+├── test_id (unique)
+└── data (JSON blob)
 ```
 
-### Authentication
+### Frontend Stack
 
-All endpoints (except `/health`) require HTTP Basic Auth.
-
-Default: `markr:secret`
+- React 18 + TypeScript + Vite
+- Tailwind CSS
+- WebLLM (local AI assistant)
+- Zustand (state management)
 
 ---
 
 ## API Reference
 
-### POST /import
-
-Import test results. Returns job_id for polling.
+### Import
 
 ```bash
+# Import XML results
 curl -u markr:secret -X POST http://localhost:4567/import \
   -H "Content-Type: text/xml+markr" \
   -d @data/sample_results.xml
+# Returns: { "job_id": "abc123", "status": "queued" }
+
+# Poll job status
+curl -u markr:secret http://localhost:4567/jobs/:job_id
+# Statuses: queued, processing, completed, failed, dead
 ```
 
-**Response:** `202 Accepted`
-```json
-{ "job_id": "abc123", "status": "queued" }
-```
-
-### GET /jobs/:job_id
-
-Poll job status. **Must wait for `completed` before fetching aggregate.**
+### Tests
 
 ```bash
-curl -u markr:secret http://localhost:4567/jobs/abc123
+# List all tests
+curl -u markr:secret http://localhost:4567/tests
+
+# Get test aggregate stats
+curl -u markr:secret http://localhost:4567/results/:test_id/aggregate
+
+# List students in a test
+curl -u markr:secret http://localhost:4567/tests/:test_id/students
 ```
 
-**Response:**
-```json
-{ "job_id": "abc123", "status": "completed" }
-```
-
-Statuses: `queued`, `processing`, `completed`, `failed`, `dead`
-
-### GET /results/:test_id/aggregate
-
-Get pre-computed statistics. **Only available after job completes.**
+### Students
 
 ```bash
-curl -u markr:secret http://localhost:4567/results/9863/aggregate
+# List all students
+curl -u markr:secret http://localhost:4567/students
+
+# Get student's all results
+curl -u markr:secret http://localhost:4567/students/:student_number
+
+# Get specific result
+curl -u markr:secret http://localhost:4567/students/:student_number/tests/:test_id
 ```
 
-```json
-{
-  "mean": 50.8,
-  "count": 81,
-  "min": 30.0,
-  "max": 75.0,
-  "stddev": 9.92,
-  "p25": 45.0,
-  "p50": 50.0,
-  "p75": 55.0
-}
+### Health
+
+```bash
+curl http://localhost:4567/health  # No auth required
 ```
-
-### GET /health
-
-Health check (no auth required).
 
 ---
 
-## Error Handling
+## Key Assumptions
 
-| Scenario | HTTP Status |
-|----------|-------------|
-| Import queued | 202 |
-| Malformed XML | 400 |
-| Missing required fields | 400 |
-| Wrong content-type | 415 |
-| Unauthorized | 401 |
-| Test not found | 404 |
+1. **Duplicate Handling**: Same student + same test = keep highest score
+2. **Document Rejection**: Missing required fields rejects entire document (HTTP 400)
+3. **Async Processing**: All imports via Sidekiq for large batch handling
+4. **Pre-computed Aggregates**: Stats calculated on import, stored as JSON
+
+---
+
+## Frontend Features
+
+- **Dashboard**: Overview of all tests with stats
+- **Test Details**: Aggregate statistics, box plots, score distribution
+- **Student List**: All students with search
+- **Student Profile**: Individual student's test history
+- **Import**: XML file upload with job polling
+- **AI Assistant**: Local LLM (Llama 3.2) for help and data queries
+
+---
+
+## Development
+
+### Backend
+
+```bash
+bundle install
+bundle exec ruby app.rb              # Start server
+bundle exec sidekiq -r ./lib/markr.rb -q imports  # Start worker
+bundle exec rspec                    # Run tests
+```
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev      # Development
+npm run build    # Production build
+```
 
 ---
 
 ## Tech Stack
 
-Ruby 3.4, Sinatra, Sidekiq, PostgreSQL, Redis, RSpec, Docker
+**Backend**: Ruby 3.4, Sinatra, Sidekiq, PostgreSQL, Redis, RSpec
+**Frontend**: React, TypeScript, Vite, Tailwind CSS, WebLLM, Zustand

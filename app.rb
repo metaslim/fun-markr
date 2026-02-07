@@ -92,6 +92,7 @@ class App < Sinatra::Base
       index :test_id
     end
     @repository = nil
+    @student_repository = nil
     @aggregate_repository = nil
   end
 

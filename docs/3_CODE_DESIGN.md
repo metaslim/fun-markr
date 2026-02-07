@@ -5,22 +5,24 @@
 ```
 markr/
 ├── app.rb                      # Sinatra entry point
-├── config.ru                   # Rack config
 ├── Gemfile
-├── Rakefile
 ├── Dockerfile
 ├── docker-compose.yml
 ├── CLAUDE.md
 ├── README.md
+├── config/
+│   └── sidekiq.rb              # Sidekiq Redis configuration
 ├── docs/
 │   ├── 1_PRD.md
 │   ├── 2_SYSTEM_DESIGN.md
 │   ├── 3_CODE_DESIGN.md
-│   └── 4_TASKS.md
+│   ├── 4_TASKS.md
+│   └── 5_SKILLS.md             # Extension guide
 ├── db/
 │   └── migrations/
 │       └── 001_create_test_results.rb
 ├── lib/
+│   ├── markr.rb                # Main require file
 │   └── markr/
 │       ├── loader/
 │       │   ├── loadable.rb
@@ -38,12 +40,12 @@ markr/
 │       │   └── test_result.rb
 │       ├── repository/
 │       │   └── test_result_repository.rb
-│       └── report/
-│           └── aggregate_report.rb
+│       ├── report/
+│       │   └── aggregate_report.rb
+│       └── worker/
+│           └── import_worker.rb  # Sidekiq background job
 └── spec/
     ├── spec_helper.rb
-    ├── factories/
-    │   └── test_result.rb
     ├── loader/
     │   ├── xml_loader_spec.rb
     │   └── loader_factory_spec.rb
@@ -60,6 +62,8 @@ markr/
     │   └── test_result_repository_spec.rb
     ├── report/
     │   └── aggregate_report_spec.rb
+    ├── worker/
+    │   └── import_worker_spec.rb
     └── integration/
         └── api_spec.rb
 ```
@@ -503,24 +507,68 @@ end
 
 ---
 
+### 7. Worker Layer
+
+#### ImportWorker (Sidekiq)
+
+```ruby
+# lib/markr/worker/import_worker.rb
+require 'sidekiq'
+require 'sequel'
+
+module Markr
+  module Worker
+    class ImportWorker
+      include Sidekiq::Job
+
+      sidekiq_options queue: 'imports', retry: 3
+
+      def perform(content, content_type)
+        loader = Loader::LoaderFactory.for_content_type(content_type)
+        results = loader.parse(content)
+
+        results.each do |result|
+          raise Loader::InvalidDocumentError, 'Invalid test result' unless result.valid?
+          self.class.repository.save(result)
+        end
+      end
+
+      def self.repository
+        @repository ||= Repository::TestResultRepository.new(database)
+      end
+
+      def self.database
+        @database ||= Sequel.connect(ENV.fetch('DATABASE_URL', 'sqlite://db/markr_dev.db'))
+      end
+    end
+  end
+end
+```
+
+---
+
 ## Dependencies (Gemfile)
 
 ```ruby
 source 'https://rubygems.org'
 
-ruby '3.2.0'
+ruby '>= 3.4'
 
 gem 'sinatra'
+gem 'rackup'
 gem 'puma'
 gem 'nokogiri'
 gem 'sequel'
 gem 'pg'
+gem 'sidekiq'
+gem 'redis'
 
 group :development, :test do
   gem 'rspec'
   gem 'rack-test'
   gem 'factory_bot'
   gem 'database_cleaner-sequel'
+  gem 'sqlite3'
 end
 ```
 
@@ -536,6 +584,7 @@ end
 | Composition | `AggregateReport` | Compose aggregators dynamically |
 | Repository | `TestResultRepository` | Abstract database operations |
 | Builder | `AggregateReport#add` | Fluent interface for composition |
+| Background Job | `ImportWorker` | Async processing via Sidekiq |
 
 ---
 

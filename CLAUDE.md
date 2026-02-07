@@ -122,10 +122,12 @@ lib/
 
 ### Tech Stack
 
-- Ruby 3.x
+- Ruby 3.4
 - Sinatra (HTTP layer)
+- Sidekiq (async job processing)
 - PostgreSQL (persistence)
-- RSpec + FactoryBot (testing)
+- Redis (job queue)
+- RSpec (testing)
 - Docker + docker-compose (deployment)
 
 ## Commands
@@ -134,9 +136,32 @@ lib/
 # Run tests
 bundle exec rspec
 
-# Run server
+# Run server locally
 bundle exec ruby app.rb
 
-# Docker
-docker-compose up
+# Run Sidekiq worker locally
+bundle exec sidekiq -r ./lib/markr.rb -q imports
+
+# Docker (recommended)
+docker-compose up --build
+
+# Force rebuild after code changes
+docker-compose build --no-cache && docker-compose up
 ```
+
+## Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/import` | Sync import (small batches) |
+| POST | `/import/async` | Async import via Sidekiq |
+| GET | `/jobs/:job_id` | Check async job status |
+| GET | `/results/:test_id/aggregate` | Get statistics |
+| GET | `/health` | Health check |
+
+## Extending the Codebase
+
+See `docs/5_SKILLS.md` for detailed examples:
+- Adding new aggregators (e.g., Median)
+- Adding new loader formats (JSON, CSV)
+- Adding new endpoints

@@ -123,10 +123,11 @@ Exam scanning machines produce test results in various formats (initially XML). 
 
 > The current visualisation solution generates printed & mailed reports overnight, so aggregate fetching doesn't need to be fast. However, real-time dashboards are planned for City Hall - worth considering even if the prototype is simple.
 
-### Current State (Prototype)
-- Synchronous import processing
+### Current State (Implemented)
+- **Synchronous import**: `POST /import` for small imports with immediate feedback
+- **Asynchronous import**: `POST /import/async` queues to Sidekiq for background processing
+- **Job status tracking**: `GET /jobs/:job_id` to check async job status
 - Aggregations calculated on-demand from database
-- Acceptable for overnight batch reports
 
 ### Future State (Real-time Dashboards)
 
@@ -134,13 +135,13 @@ Exam scanning machines produce test results in various formats (initially XML). 
 
 **Recommended Architecture:**
 
-1. **Async Import Processing**
-   - Import endpoint returns `202 Accepted` immediately
-   - Background worker (Sidekiq/Resque) processes XML
-   - Enables handling large batch imports without timeout
+1. **Async Import Processing** (IMPLEMENTED)
+   - `POST /import/async` returns `202 Accepted` immediately
+   - Sidekiq worker processes XML in background
+   - `GET /jobs/:job_id` returns job status
    ```
-   POST /import → 202 Accepted { "job_id": "abc123" }
-   GET /jobs/abc123 → { "status": "completed", "imported": 500 }
+   POST /import/async → 202 Accepted { "job_id": "abc123" }
+   GET /jobs/abc123 → { "status": "completed" }
    ```
 
 2. **Pre-computed Aggregates**
@@ -171,8 +172,8 @@ Exam scanning machines produce test results in various formats (initially XML). 
    - Imports go to primary
 
 **Migration Path:**
-1. Phase 1 (current): Synchronous, on-demand calculation
-2. Phase 2: Add background jobs for imports
+1. Phase 1: Synchronous, on-demand calculation (DONE)
+2. Phase 2: Add background jobs for imports (DONE - Sidekiq)
 3. Phase 3: Add aggregate caching
 4. Phase 4: Add WebSocket for real-time updates
 

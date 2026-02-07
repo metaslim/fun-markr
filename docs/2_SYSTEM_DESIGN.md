@@ -3,31 +3,34 @@
 ## High-Level Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Docker Compose                           │
-│  ┌─────────────────────────────┐  ┌─────────────────────────┐  │
-│  │         Markr App           │  │       PostgreSQL        │  │
-│  │        (Ruby/Sinatra)       │  │                         │  │
-│  │                             │  │  ┌───────────────────┐  │  │
-│  │  ┌───────────────────────┐  │  │  │   test_results    │  │  │
-│  │  │     HTTP Layer        │  │  │  ├───────────────────┤  │  │
-│  │  │  POST /import         │──┼──┼─▶│ student_number    │  │  │
-│  │  │  GET /results/:id/agg │  │  │  │ test_id           │  │  │
-│  │  └───────────────────────┘  │  │  │ marks_available   │  │  │
-│  │            │                │  │  │ marks_obtained    │  │  │
-│  │            ▼                │  │  │ scanned_on        │  │  │
-│  │  ┌───────────────────────┐  │  │  └───────────────────┘  │  │
-│  │  │    Loader Layer       │  │  │                         │  │
-│  │  │  (XML, JSON, CSV)     │  │  └─────────────────────────┘  │
-│  │  └───────────────────────┘  │                               │
-│  │            │                │                               │
-│  │            ▼                │                               │
-│  │  ┌───────────────────────┐  │                               │
-│  │  │   Aggregator Layer    │  │                               │
-│  │  │ (Mean, StdDev, P25..) │  │                               │
-│  │  └───────────────────────┘  │                               │
-│  └─────────────────────────────┘                               │
-└─────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────────┐
+│                              Docker Compose                                     │
+│                                                                                │
+│  ┌─────────────────────────────┐  ┌─────────────┐  ┌─────────────────────────┐│
+│  │         Markr App           │  │    Redis    │  │       PostgreSQL        ││
+│  │        (Ruby/Sinatra)       │  │   (Queue)   │  │                         ││
+│  │                             │  │             │  │  ┌───────────────────┐  ││
+│  │  ┌───────────────────────┐  │  │             │  │  │   test_results    │  ││
+│  │  │     HTTP Layer        │  │  │             │  │  ├───────────────────┤  ││
+│  │  │  POST /import         │──┼──┼─────────────┼──┼─▶│ student_number    │  ││
+│  │  │  POST /import/async   │──┼─▶│   Sidekiq   │  │  │ test_id           │  ││
+│  │  │  GET /jobs/:job_id    │  │  │    Queue    │  │  │ marks_available   │  ││
+│  │  │  GET /results/:id/agg │  │  │             │  │  │ marks_obtained    │  ││
+│  │  └───────────────────────┘  │  └──────┬──────┘  │  │ scanned_on        │  ││
+│  │            │                │         │         │  └───────────────────┘  ││
+│  │            ▼                │         ▼         │                         ││
+│  │  ┌───────────────────────┐  │  ┌─────────────┐  │                         ││
+│  │  │    Loader Layer       │  │  │   Sidekiq   │──┼─────────────────────────┘│
+│  │  │  (XML, JSON, CSV)     │  │  │   Worker    │  │                          │
+│  │  └───────────────────────┘  │  └─────────────┘  │                          │
+│  │            │                │                   │                          │
+│  │            ▼                │                   │                          │
+│  │  ┌───────────────────────┐  │                   │                          │
+│  │  │   Aggregator Layer    │  │                   │                          │
+│  │  │ (Mean, StdDev, P25..) │  │                   │                          │
+│  │  └───────────────────────┘  │                   │                          │
+│  └─────────────────────────────┘                   │                          │
+└────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -47,8 +50,11 @@
 
 | Method | Path | Content-Type | Description |
 |--------|------|--------------|-------------|
-| POST | `/import` | `text/xml+markr` | Import test results |
+| POST | `/import` | `text/xml+markr` | Import test results (sync) |
+| POST | `/import/async` | `text/xml+markr` | Queue import for background processing |
+| GET | `/jobs/:job_id` | `application/json` | Check async job status |
 | GET | `/results/:test_id/aggregate` | `application/json` | Get statistics |
+| GET | `/health` | `application/json` | Health check |
 
 ---
 
@@ -260,38 +266,77 @@ CREATE INDEX idx_test_results_test_id ON test_results(test_id);
 services:
   app:
     build: .
+    command: bundle exec ruby app.rb -o 0.0.0.0
     ports:
       - "4567:4567"
     environment:
       - DATABASE_URL=postgres://markr:markr@db:5432/markr
+      - REDIS_URL=redis://redis:6379/0
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build: .
+    command: bundle exec sidekiq -r ./lib/markr.rb -q imports
+    environment:
+      - DATABASE_URL=postgres://markr:markr@db:5432/markr
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   db:
-    image: postgres:15
+    image: postgres:16-alpine
     environment:
       - POSTGRES_USER=markr
       - POSTGRES_PASSWORD=markr
       - POSTGRES_DB=markr
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U markr"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:
+  redis_data:
 ```
 
 ### Dockerfile
 
 ```dockerfile
-FROM ruby:3.2
+FROM ruby:3.4-slim
+
+RUN apt-get update -qq && \
+    apt-get install -y --no-install-recommends \
+    build-essential libpq-dev curl && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY Gemfile Gemfile.lock ./
-RUN bundle install
+RUN bundle install --jobs 4 --retry 3
 COPY . .
 
 EXPOSE 4567
-CMD ["bundle", "exec", "ruby", "app.rb", "-o", "0.0.0.0"]
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:4567/health || exit 1
 ```
 
 ---
@@ -300,7 +345,8 @@ CMD ["bundle", "exec", "ruby", "app.rb", "-o", "0.0.0.0"]
 
 | Scenario | HTTP Status | Response Body |
 |----------|-------------|---------------|
-| Valid import | 201 | `{ "imported": 5 }` |
+| Valid sync import | 201 | `{ "imported": 5 }` |
+| Async import queued | 202 | `{ "job_id": "abc123", "status": "queued" }` |
 | Malformed XML | 400 | `{ "error": "Invalid XML" }` |
 | Missing required field | 400 | `{ "error": "Missing student-number" }` |
 | Unsupported content-type | 415 | `{ "error": "Unsupported media type" }` |
@@ -317,9 +363,14 @@ CMD ["bundle", "exec", "ruby", "app.rb", "-o", "0.0.0.0"]
 
 ---
 
-## Scalability Notes (Future)
+## Scalability Notes
 
+**Implemented:**
+1. **Async Processing** - Sidekiq workers process large imports in background
+2. **Redis** - Job queue for Sidekiq, can also be used for caching
+
+**Future:**
 1. **Horizontal Scaling** - Stateless app, can run multiple instances
 2. **Caching** - Redis for aggregation results (invalidate on import)
-3. **Async Processing** - Queue large imports for background processing
-4. **Read Replicas** - Separate read/write for heavy aggregation loads
+3. **Read Replicas** - Separate read/write for heavy aggregation loads
+4. **Pre-computed Aggregates** - Cache stats on import for instant queries

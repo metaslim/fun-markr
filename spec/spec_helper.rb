@@ -1,6 +1,3 @@
-require 'factory_bot'
-require 'database_cleaner/sequel'
-
 # Load all lib files
 Dir[File.join(__dir__, '..', 'lib', '**', '*.rb')].sort.each { |f| require f }
 

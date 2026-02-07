@@ -1,5 +1,4 @@
 require 'spec_helper'
-require 'sequel'
 require 'sidekiq/testing'
 
 RSpec.describe Markr::Worker::ImportWorker do
@@ -17,31 +16,15 @@ RSpec.describe Markr::Worker::ImportWorker do
     XML
   end
 
-  let(:db) { Sequel.sqlite }
-  let(:repository) { Markr::Repository::TestResultRepository.new(db) }
+  let(:repository) { instance_double(Markr::Repository::TestResultRepository) }
 
   before do
     Sidekiq::Testing.fake!
-
-    db.create_table(:test_results) do
-      primary_key :id
-      String :student_number, null: false
-      String :test_id, null: false
-      Integer :marks_available, null: false
-      Integer :marks_obtained, null: false
-      String :scanned_on
-      DateTime :created_at
-      DateTime :updated_at
-      unique [:student_number, :test_id]
-    end
-
-    # Inject test repository
     allow(described_class).to receive(:repository).and_return(repository)
   end
 
   after do
     Sidekiq::Worker.clear_all
-    db.drop_table(:test_results)
   end
 
   describe '.perform_async' do
@@ -54,14 +37,18 @@ RSpec.describe Markr::Worker::ImportWorker do
 
   describe '#perform' do
     it 'parses XML and saves results' do
+      expect(repository).to receive(:save).with(
+        an_object_having_attributes(
+          student_number: '002299',
+          test_id: '9863',
+          marks_available: 20,
+          marks_obtained: 13
+        )
+      )
+
       Sidekiq::Testing.inline! do
         described_class.perform_async(valid_xml, 'text/xml+markr')
       end
-
-      expect(db[:test_results].count).to eq(1)
-      result = db[:test_results].first
-      expect(result[:student_number]).to eq('002299')
-      expect(result[:marks_obtained]).to eq(13)
     end
 
     it 'handles multiple results' do
@@ -80,11 +67,11 @@ RSpec.describe Markr::Worker::ImportWorker do
         </mcq-test-results>
       XML
 
+      expect(repository).to receive(:save).twice
+
       Sidekiq::Testing.inline! do
         described_class.perform_async(xml, 'text/xml+markr')
       end
-
-      expect(db[:test_results].count).to eq(2)
     end
 
     it 'raises error for invalid content type' do

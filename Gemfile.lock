@@ -1,37 +1,12 @@
 GEM
   remote: https://rubygems.org/
   specs:
-    activesupport (8.1.2)
-      base64
-      bigdecimal
-      concurrent-ruby (~> 1.0, >= 1.3.1)
-      connection_pool (>= 2.2.5)
-      drb
-      i18n (>= 1.6, < 2)
-      json
-      logger (>= 1.4.2)
-      minitest (>= 5.1)
-      securerandom (>= 0.3)
-      tzinfo (~> 2.0, >= 2.0.5)
-      uri (>= 0.13.1)
     base64 (0.3.0)
     bigdecimal (4.0.1)
-    concurrent-ruby (1.3.6)
     connection_pool (3.0.2)
-    database_cleaner-core (2.0.1)
-    database_cleaner-sequel (2.0.2)
-      database_cleaner-core (~> 2.0.0)
-      sequel
     diff-lcs (1.6.2)
-    drb (2.2.3)
-    factory_bot (6.5.6)
-      activesupport (>= 6.1.0)
-    i18n (1.14.8)
-      concurrent-ruby (~> 1.0)
     json (2.18.1)
     logger (1.7.0)
-    minitest (6.0.1)
-      prism (~> 1.5)
     mustermann (3.0.4)
       ruby2_keywords (~> 0.0.1)
     nio4r (2.7.5)
@@ -58,7 +33,6 @@ GEM
     pg (1.6.3-x86_64-darwin)
     pg (1.6.3-x86_64-linux)
     pg (1.6.3-x86_64-linux-musl)
-    prism (1.9.0)
     puma (7.2.0)
       nio4r (~> 2.0)
     racc (1.8.1)
@@ -92,7 +66,6 @@ GEM
       rspec-support (~> 3.13.0)
     rspec-support (3.13.7)
     ruby2_keywords (0.0.5)
-    securerandom (0.4.1)
     sequel (5.101.0)
       bigdecimal
     sidekiq (8.1.0)
@@ -117,9 +90,6 @@ GEM
     sqlite3 (2.9.0-x86_64-linux-gnu)
     sqlite3 (2.9.0-x86_64-linux-musl)
     tilt (2.7.0)
-    tzinfo (2.0.6)
-      concurrent-ruby (~> 1.0)
-    uri (1.1.1)
 
 PLATFORMS
   aarch64-linux
@@ -134,8 +104,6 @@ PLATFORMS
   x86_64-linux-musl
 
 DEPENDENCIES
-  database_cleaner-sequel
-  factory_bot
   nokogiri
   pg
   puma

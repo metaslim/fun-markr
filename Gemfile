@@ -11,10 +11,8 @@ gem 'pg'
 gem 'sidekiq'
 gem 'redis'
 
-group :development, :test do
+group :test do
   gem 'rspec'
   gem 'rack-test'
-  gem 'factory_bot'
-  gem 'database_cleaner-sequel'
-  gem 'sqlite3'
+  gem 'sqlite3'        # In-memory DB for integration tests
 end

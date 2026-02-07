@@ -1,0 +1,29 @@
+services:
+  app:
+    build: .
+    ports:
+      - "4567:4567"
+    environment:
+      - DATABASE_URL=postgres://markr:markr@db:5432/markr
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=markr
+      - POSTGRES_PASSWORD=markr
+      - POSTGRES_DB=markr
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U markr"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

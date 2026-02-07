@@ -5,13 +5,19 @@ require_relative 'lib/markr'
 
 class App < Sinatra::Base
   configure do
-    set :database_url, ENV.fetch('DATABASE_URL', 'sqlite://db/markr.db')
+    # PostgreSQL in production, SQLite for local dev fallback
+    set :database_url, ENV.fetch('DATABASE_URL', 'sqlite://db/markr_dev.db')
     # Disable rack-protection host authorization for API usage
     set :host_authorization, { permitted_hosts: [] }
   end
 
   def self.database
     @database ||= Sequel.connect(settings.database_url)
+  end
+
+  def self.run_migrations!
+    Sequel.extension :migration
+    Sequel::Migrator.run(database, 'db/migrations')
   end
 
   def self.reset_database!
@@ -93,5 +99,6 @@ end
 
 # Run if executed directly
 if __FILE__ == $0
+  App.run_migrations!
   App.run!
 end

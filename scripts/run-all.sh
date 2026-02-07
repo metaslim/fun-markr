@@ -1,8 +1,19 @@
 #!/bin/bash
 # Master script: Build, start, and test everything
-# Usage: ./scripts/run-all.sh
+# Usage: ./scripts/run-all.sh [--with-tests]
+#
+# Options:
+#   --with-tests    Run local RSpec tests first (requires Ruby 3.4+)
+#
+# Note: If using Homebrew Ruby, ensure PATH includes:
+#   export PATH="/opt/homebrew/opt/ruby/bin:$PATH"
 
 set -e
+
+# Try to use Homebrew Ruby if available
+if [ -d "/opt/homebrew/opt/ruby/bin" ]; then
+  export PATH="/opt/homebrew/opt/ruby/bin:$PATH"
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
@@ -34,28 +45,52 @@ print_error() {
   echo -e "${RED}✗ $1${NC}"
 }
 
-# Step 1: Run unit tests
-print_step "Step 1: Running RSpec unit tests"
-if bundle exec rspec --format progress; then
+# Check for --with-tests flag
+RUN_LOCAL_TESTS=false
+if [ "$1" == "--with-tests" ]; then
+  RUN_LOCAL_TESTS=true
+fi
+
+# Step 1: Run unit tests (optional)
+if [ "$RUN_LOCAL_TESTS" == "true" ]; then
+  print_step "Step 1: Running RSpec unit tests (local)"
+  if bundle exec rspec --format progress; then
+    print_success "All 111 tests passed!"
+  else
+    print_error "Tests failed!"
+    exit 1
+  fi
+else
+  print_step "Step 1: Skipping local tests (use --with-tests to run)"
+  echo "Tests will run inside Docker container instead"
+fi
+
+# Step 2: Stop any existing containers
+print_step "Step 2: Cleaning up existing containers"
+docker-compose down -v 2>/dev/null || true
+print_success "Cleanup complete"
+
+# Step 3: Build Docker containers
+print_step "Step 3: Building Docker containers"
+docker-compose build --no-cache
+print_success "Docker build complete"
+
+# Step 4: Run tests inside Docker
+print_step "Step 4: Running RSpec tests in Docker"
+if docker-compose run --rm app bundle exec rspec --format progress; then
   print_success "All 111 tests passed!"
 else
   print_error "Tests failed!"
   exit 1
 fi
 
-# Step 2: Build Docker containers
-print_step "Step 2: Building Docker containers"
-docker-compose build --no-cache
-print_success "Docker build complete"
-
-# Step 3: Start services
-print_step "Step 3: Starting Docker services"
-docker-compose down -v 2>/dev/null || true
+# Step 5: Start services
+print_step "Step 5: Starting Docker services"
 docker-compose up -d
 print_success "Services starting..."
 
-# Step 4: Wait for services to be healthy
-print_step "Step 4: Waiting for services to be healthy"
+# Step 6: Wait for services to be healthy
+print_step "Step 6: Waiting for services to be healthy"
 echo "Waiting for PostgreSQL..."
 until docker-compose exec -T db pg_isready -U markr > /dev/null 2>&1; do
   sleep 1
@@ -88,23 +123,23 @@ done
 echo ""
 print_success "App is ready"
 
-# Step 5: Health check
-print_step "Step 5: Health check"
+# Step 7: Health check
+print_step "Step 7: Health check"
 "$SCRIPT_DIR/health.sh"
 print_success "Health check passed"
 
-# Step 6: Demo workflow
-print_step "Step 6: Running demo workflow"
+# Step 8: Demo workflow
+print_step "Step 8: Running demo workflow"
 "$SCRIPT_DIR/demo.sh"
 print_success "Demo completed"
 
-# Step 7: Edge case tests
-print_step "Step 7: Running edge case tests"
+# Step 9: Edge case tests
+print_step "Step 9: Running edge case tests"
 "$SCRIPT_DIR/test-edge-cases.sh"
 print_success "Edge case tests completed"
 
-# Step 8: Test async import
-print_step "Step 8: Testing async import"
+# Step 10: Test async import
+print_step "Step 10: Testing async import"
 echo "Submitting async import..."
 response=$(curl -s -u markr:secret -X POST http://localhost:4567/import/async \
   -H "Content-Type: text/xml+markr" \
@@ -122,8 +157,8 @@ else
   print_error "Failed to get job_id from async import"
 fi
 
-# Step 9: Show service status
-print_step "Step 9: Service status"
+# Step 11: Show service status
+print_step "Step 11: Service status"
 docker-compose ps
 
 # Summary

@@ -4,16 +4,7 @@ require 'database_cleaner/sequel'
 # Load all lib files
 Dir[File.join(__dir__, '..', 'lib', '**', '*.rb')].sort.each { |f| require f }
 
-# Load factories
-Dir[File.join(__dir__, 'factories', '**', '*.rb')].sort.each { |f| require f }
-
 RSpec.configure do |config|
-  config.include FactoryBot::Syntax::Methods
-
-  config.before(:suite) do
-    FactoryBot.find_definitions
-  end
-
   config.expect_with :rspec do |expectations|
     expectations.include_chain_clauses_in_custom_matcher_descriptions = true
   end

@@ -38,3 +38,6 @@
 
 # Logs
 *.log
+
+# SQLite database
+/db/*.db

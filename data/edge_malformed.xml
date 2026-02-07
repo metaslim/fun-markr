@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- Edge Case: Malformed XML - should be REJECTED with 400 -->
+<mcq-test-results>
+	<mcq-test-result>
+		<student-number>001</student-number>
+		<test-id>TEST001</test-id>
+		<!-- Unclosed tag below -->
+		<summary-marks available="20" obtained="15"
+	</mcq-test-result>
+</mcq-test-results>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- Edge Case: Missing test-id - entire document should be REJECTED with 400 -->
+<mcq-test-results>
+	<!-- INVALID: Missing test-id -->
+	<mcq-test-result scanned-on="2017-12-04T10:00:00+11:00">
+		<first-name>Alice</first-name>
+		<last-name>Smith</last-name>
+		<student-number>001</student-number>
+		<!-- test-id missing! -->
+		<summary-marks available="20" obtained="15" />
+	</mcq-test-result>
+</mcq-test-results>

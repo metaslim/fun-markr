@@ -12,6 +12,19 @@ markr/
 ├── README.md
 ├── config/
 │   └── sidekiq.rb              # Sidekiq Redis configuration
+├── data/                       # Sample and edge case test data
+│   ├── sample_results.xml      # Full sample from challenge
+│   ├── edge_duplicates.xml     # Duplicate handling tests
+│   ├── edge_missing_*.xml      # Missing field tests
+│   └── ...
+├── scripts/                    # Helper shell scripts
+│   ├── health.sh
+│   ├── import.sh
+│   ├── import-async.sh
+│   ├── job-status.sh
+│   ├── aggregate.sh
+│   ├── demo.sh
+│   └── test-edge-cases.sh
 ├── docs/
 │   ├── 1_PRD.md
 │   ├── 2_SYSTEM_DESIGN.md
@@ -454,8 +467,27 @@ require 'json'
 require_relative 'lib/markr'
 
 class App < Sinatra::Base
+  # HTTP Basic Auth
+  AUTH_USERNAME = ENV.fetch('AUTH_USERNAME', 'markr')
+  AUTH_PASSWORD = ENV.fetch('AUTH_PASSWORD', 'secret')
+
+  helpers do
+    def protected!
+      return if authorized?
+      headers['WWW-Authenticate'] = 'Basic realm="Markr API"'
+      halt 401, { error: 'Unauthorized' }.to_json
+    end
+
+    def authorized?
+      @auth ||= Rack::Auth::Basic::Request.new(request.env)
+      @auth.provided? && @auth.basic? && @auth.credentials &&
+        @auth.credentials == [AUTH_USERNAME, AUTH_PASSWORD]
+    end
+  end
+
   before do
     content_type :json
+    protected! unless request.path_info == '/health'
   end
 
   post '/import' do

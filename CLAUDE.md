@@ -115,6 +115,12 @@ lib/
 2. **Percentages**: All stats (except count) are percentages: `(obtained / available) * 100`
 3. **Validation**: Reject entire document if required fields missing
 
+### Authentication
+
+All endpoints (except `/health`) require HTTP Basic Auth:
+- Default credentials: `markr:secret`
+- Configure via `AUTH_USERNAME` and `AUTH_PASSWORD` env vars
+
 ### Required Endpoints
 
 - `POST /import` - Content-Type: `text/xml+markr`
@@ -148,6 +154,35 @@ docker-compose up --build
 # Force rebuild after code changes
 docker-compose build --no-cache && docker-compose up
 ```
+
+## Helper Scripts
+
+Convenience scripts for API operations:
+
+```bash
+# Health check
+./scripts/health.sh
+
+# Import sample data (sync)
+./scripts/import.sh data/sample_results.xml
+
+# Import sample data (async)
+./scripts/import-async.sh data/sample_results.xml
+
+# Check job status
+./scripts/job-status.sh <job_id>
+
+# Get aggregates
+./scripts/aggregate.sh 9863
+
+# Run full demo
+./scripts/demo.sh
+```
+
+**Environment variables:**
+- `MARKR_URL` - Base URL (default: `http://localhost:4567`)
+- `MARKR_USER` - Auth username (default: `markr`)
+- `MARKR_PASS` - Auth password (default: `secret`)
 
 ## Endpoints
 

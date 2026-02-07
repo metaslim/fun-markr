@@ -357,9 +357,41 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 
 ## Security Considerations
 
-1. **Input Validation** - Sanitize all XML input, prevent XXE attacks
-2. **SQL Injection** - Use parameterized queries (handled by ORM)
-3. **Content-Type Enforcement** - Strict content-type checking
+1. **Authentication** - HTTP Basic Auth required for all endpoints except `/health`
+2. **Input Validation** - Sanitize all XML input, prevent XXE attacks
+3. **SQL Injection** - Use parameterized queries (handled by ORM)
+4. **Content-Type Enforcement** - Strict content-type checking
+
+## Helper Scripts
+
+Shell scripts are provided in `scripts/` for API operations:
+
+| Script | Description |
+|--------|-------------|
+| `health.sh` | Health check (no auth) |
+| `import.sh` | Sync import from XML file |
+| `import-async.sh` | Async import via Sidekiq |
+| `job-status.sh` | Check async job status |
+| `aggregate.sh` | Get test statistics |
+| `demo.sh` | Full demo workflow |
+| `test-edge-cases.sh` | Test all edge cases |
+
+## Test Data
+
+Edge case test data in `data/`:
+
+| File | Tests |
+|------|-------|
+| `sample_results.xml` | Full sample from challenge |
+| `edge_duplicates.xml` | Duplicate submissions (keep highest) |
+| `edge_missing_*.xml` | Missing required fields (400) |
+| `edge_malformed.xml` | Invalid XML syntax (400) |
+| `edge_perfect_scores.xml` | All 100% (stddev=0) |
+| `edge_zero_scores.xml` | All 0% |
+| `edge_single_student.xml` | Single student (count=1) |
+| `edge_varied_available.xml` | Different available marks |
+| `edge_multiple_tests.xml` | Multiple tests in one import |
+| `edge_empty.xml` | Empty results |
 
 ---
 

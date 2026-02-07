@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- Edge Case: Zero scores - all 0% -->
+<mcq-test-results>
+	<mcq-test-result scanned-on="2017-12-04T10:00:00+11:00">
+		<first-name>Zero</first-name>
+		<last-name>One</last-name>
+		<student-number>Z001</student-number>
+		<test-id>ZERO</test-id>
+		<summary-marks available="20" obtained="0" />
+	</mcq-test-result>
+
+	<mcq-test-result scanned-on="2017-12-04T10:01:00+11:00">
+		<first-name>Zero</first-name>
+		<last-name>Two</last-name>
+		<student-number>Z002</student-number>
+		<test-id>ZERO</test-id>
+		<summary-marks available="20" obtained="0" />
+	</mcq-test-result>
+</mcq-test-results>

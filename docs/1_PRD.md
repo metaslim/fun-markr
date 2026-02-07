@@ -111,11 +111,17 @@ Exam scanning machines produce test results in various formats (initially XML). 
 
 ## Out of Scope (v1)
 
-- Authentication/Authorization
 - Rate limiting
 - Batch export endpoints
 - Real-time WebSocket updates
 - Multi-tenancy
+
+## Authentication (v1.1)
+
+HTTP Basic Authentication is implemented:
+- All endpoints (except `/health`) require authentication
+- Default credentials: `markr:secret`
+- Configurable via `AUTH_USERNAME` and `AUTH_PASSWORD` environment variables
 
 ---
 

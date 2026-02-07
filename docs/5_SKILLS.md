@@ -449,3 +449,29 @@ bundle exec rspec
 # Run with documentation
 bundle exec rspec --format documentation
 ```
+
+---
+
+## Test Data Files
+
+Edge case test data is available in `data/`:
+
+| File | Description | Expected |
+|------|-------------|----------|
+| `sample_results.xml` | Full sample data from challenge | 201 Created |
+| `edge_duplicates.xml` | Same student submits multiple times | Keeps highest score |
+| `edge_missing_fields.xml` | Missing student-number | 400 Bad Request |
+| `edge_missing_testid.xml` | Missing test-id | 400 Bad Request |
+| `edge_missing_marks.xml` | Missing summary-marks | 400 Bad Request |
+| `edge_malformed.xml` | Invalid XML syntax | 400 Bad Request |
+| `edge_perfect_scores.xml` | All students score 100% | stddev = 0 |
+| `edge_zero_scores.xml` | All students score 0% | mean = 0 |
+| `edge_single_student.xml` | Only one student | count = 1 |
+| `edge_varied_available.xml` | Different available marks | Normalized percentages |
+| `edge_multiple_tests.xml` | Multiple tests in one import | Separated by test_id |
+| `edge_empty.xml` | No results in document | imported = 0 |
+
+Run all edge case tests:
+```bash
+./scripts/test-edge-cases.sh
+```

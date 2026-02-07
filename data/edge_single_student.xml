@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- Edge Case: Single student - statistics should handle single value -->
+<mcq-test-results>
+	<mcq-test-result scanned-on="2017-12-04T10:00:00+11:00">
+		<first-name>Solo</first-name>
+		<last-name>Student</last-name>
+		<student-number>SOLO001</student-number>
+		<test-id>SINGLE</test-id>
+		<summary-marks available="20" obtained="15" />
+	</mcq-test-result>
+</mcq-test-results>

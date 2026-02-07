@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- Edge Case: Multiple tests in one import - results should be separated by test_id -->
+<mcq-test-results>
+	<!-- Test A: 3 students -->
+	<mcq-test-result scanned-on="2017-12-04T10:00:00+11:00">
+		<first-name>Student</first-name>
+		<last-name>One</last-name>
+		<student-number>MT001</student-number>
+		<test-id>TESTA</test-id>
+		<summary-marks available="20" obtained="10" />
+	</mcq-test-result>
+
+	<mcq-test-result scanned-on="2017-12-04T10:01:00+11:00">
+		<first-name>Student</first-name>
+		<last-name>Two</last-name>
+		<student-number>MT002</student-number>
+		<test-id>TESTA</test-id>
+		<summary-marks available="20" obtained="15" />
+	</mcq-test-result>
+
+	<mcq-test-result scanned-on="2017-12-04T10:02:00+11:00">
+		<first-name>Student</first-name>
+		<last-name>Three</last-name>
+		<student-number>MT003</student-number>
+		<test-id>TESTA</test-id>
+		<summary-marks available="20" obtained="20" />
+	</mcq-test-result>
+
+	<!-- Test B: 2 students -->
+	<mcq-test-result scanned-on="2017-12-04T11:00:00+11:00">
+		<first-name>Student</first-name>
+		<last-name>Four</last-name>
+		<student-number>MT004</student-number>
+		<test-id>TESTB</test-id>
+		<summary-marks available="50" obtained="40" />
+	</mcq-test-result>
+
+	<mcq-test-result scanned-on="2017-12-04T11:01:00+11:00">
+		<first-name>Student</first-name>
+		<last-name>Five</last-name>
+		<student-number>MT005</student-number>
+		<test-id>TESTB</test-id>
+		<summary-marks available="50" obtained="45" />
+	</mcq-test-result>
+</mcq-test-results>

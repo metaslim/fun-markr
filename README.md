@@ -8,7 +8,10 @@ A data ingestion microservice for exam results, built for the Markr coding chall
 # Start everything with Docker
 docker-compose up
 
-# Test the service
+# Run the demo script
+./scripts/demo.sh
+
+# Or test manually
 curl http://localhost:4567/health
 ```
 
@@ -211,7 +214,7 @@ The current implementation calculates aggregations on-demand. For future real-ti
 
 ### Test Coverage
 
-110 automated tests covering:
+111 automated tests covering:
 - Unit tests for models, loaders, aggregators
 - Integration tests for API endpoints
 - Edge cases (duplicates, validation, empty data)
@@ -231,6 +234,55 @@ bundle exec rspec --format documentation
 | Unsupported content-type | 415 | Only `text/xml+markr` supported |
 | Unauthorized | 401 | Missing or invalid credentials |
 | Test not found | 404 | No results for that test_id |
+
+## Helper Scripts
+
+Convenience scripts are provided in `scripts/` for common operations:
+
+```bash
+# Health check (no auth required)
+./scripts/health.sh
+
+# Import data (sync)
+./scripts/import.sh data/sample_results.xml
+
+# Import data (async via Sidekiq)
+./scripts/import-async.sh data/sample_results.xml
+
+# Check async job status
+./scripts/job-status.sh <job_id>
+
+# Get aggregate statistics
+./scripts/aggregate.sh 9863
+
+# Run full demo (health + import + aggregate)
+./scripts/demo.sh
+```
+
+**Environment variables** for scripts:
+- `MARKR_URL` - API base URL (default: `http://localhost:4567`)
+- `MARKR_USER` - Username (default: `markr`)
+- `MARKR_PASS` - Password (default: `secret`)
+
+## Project Structure
+
+```
+.
+├── app.rb                 # Sinatra application entry point
+├── lib/markr/             # Core library code
+│   ├── aggregator/        # Statistics (mean, stddev, percentiles)
+│   ├── loader/            # XML parsing (extensible)
+│   ├── model/             # TestResult domain object
+│   ├── repository/        # Database operations
+│   ├── report/            # Aggregate composition
+│   └── worker/            # Sidekiq async jobs
+├── spec/                  # RSpec tests
+├── scripts/               # Helper shell scripts
+├── data/                  # Sample data files
+├── db/migrations/         # Database migrations
+├── docs/                  # Documentation
+└── docker-compose.yml     # Docker orchestration
+```
 
 ## Tech Stack
 

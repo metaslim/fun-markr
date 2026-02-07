@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- Edge Case: Different available marks - percentages should normalize -->
+<mcq-test-results>
+	<!-- 10/20 = 50% -->
+	<mcq-test-result scanned-on="2017-12-04T10:00:00+11:00">
+		<first-name>Student</first-name>
+		<last-name>A</last-name>
+		<student-number>VA001</student-number>
+		<test-id>VARIED</test-id>
+		<summary-marks available="20" obtained="10" />
+	</mcq-test-result>
+
+	<!-- 25/50 = 50% (same percentage, different available) -->
+	<mcq-test-result scanned-on="2017-12-04T10:01:00+11:00">
+		<first-name>Student</first-name>
+		<last-name>B</last-name>
+		<student-number>VA002</student-number>
+		<test-id>VARIED</test-id>
+		<summary-marks available="50" obtained="25" />
+	</mcq-test-result>
+
+	<!-- 80/100 = 80% -->
+	<mcq-test-result scanned-on="2017-12-04T10:02:00+11:00">
+		<first-name>Student</first-name>
+		<last-name>C</last-name>
+		<student-number>VA003</student-number>
+		<test-id>VARIED</test-id>
+		<summary-marks available="100" obtained="80" />
+	</mcq-test-result>
+</mcq-test-results>

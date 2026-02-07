@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- Edge Case: Missing required fields - entire document should be REJECTED with 400 -->
+<mcq-test-results>
+	<!-- Valid result -->
+	<mcq-test-result scanned-on="2017-12-04T10:00:00+11:00">
+		<first-name>Alice</first-name>
+		<last-name>Smith</last-name>
+		<student-number>001</student-number>
+		<test-id>TEST001</test-id>
+		<summary-marks available="20" obtained="15" />
+	</mcq-test-result>
+
+	<!-- INVALID: Missing student-number -->
+	<mcq-test-result scanned-on="2017-12-04T11:00:00+11:00">
+		<first-name>Bob</first-name>
+		<last-name>Jones</last-name>
+		<!-- student-number missing! -->
+		<test-id>TEST001</test-id>
+		<summary-marks available="20" obtained="18" />
+	</mcq-test-result>
+</mcq-test-results>

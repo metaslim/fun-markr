@@ -257,12 +257,32 @@ Convenience scripts are provided in `scripts/` for common operations:
 
 # Run full demo (health + import + aggregate)
 ./scripts/demo.sh
+
+# Test all edge cases
+./scripts/test-edge-cases.sh
 ```
 
 **Environment variables** for scripts:
 - `MARKR_URL` - API base URL (default: `http://localhost:4567`)
 - `MARKR_USER` - Username (default: `markr`)
 - `MARKR_PASS` - Password (default: `secret`)
+
+## Edge Case Test Data
+
+Test data for edge cases is available in `data/`:
+
+| File | Description |
+|------|-------------|
+| `sample_results.xml` | Full sample from challenge |
+| `edge_duplicates.xml` | Duplicate submissions (keeps highest) |
+| `edge_missing_*.xml` | Missing required fields (400) |
+| `edge_malformed.xml` | Invalid XML syntax (400) |
+| `edge_perfect_scores.xml` | All 100% (stddev=0) |
+| `edge_zero_scores.xml` | All 0% |
+| `edge_single_student.xml` | Single student |
+| `edge_varied_available.xml` | Different available marks |
+| `edge_multiple_tests.xml` | Multiple tests in one import |
+| `edge_empty.xml` | Empty results |
 
 ## Project Structure
 
@@ -276,9 +296,9 @@ Convenience scripts are provided in `scripts/` for common operations:
 │   ├── repository/        # Database operations
 │   ├── report/            # Aggregate composition
 │   └── worker/            # Sidekiq async jobs
-├── spec/                  # RSpec tests
+├── spec/                  # RSpec tests (111 tests)
 ├── scripts/               # Helper shell scripts
-├── data/                  # Sample data files
+├── data/                  # Sample and edge case test data
 ├── db/migrations/         # Database migrations
 ├── docs/                  # Documentation
 └── docker-compose.yml     # Docker orchestration

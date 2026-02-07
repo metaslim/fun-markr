@@ -272,6 +272,8 @@ services:
     environment:
       - DATABASE_URL=postgres://markr:markr@db:5432/markr
       - REDIS_URL=redis://redis:6379/0
+      - AUTH_USERNAME=markr
+      - AUTH_PASSWORD=secret
     depends_on:
       db:
         condition: service_healthy

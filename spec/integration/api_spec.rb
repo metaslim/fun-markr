@@ -10,6 +10,11 @@ RSpec.describe 'API' do
     App
   end
 
+  def auth_header
+    credentials = Base64.strict_encode64('markr:secret')
+    { 'HTTP_AUTHORIZATION' => "Basic #{credentials}" }
+  end
+
   let(:valid_xml) do
     <<~XML
       <mcq-test-results>
@@ -39,12 +44,12 @@ RSpec.describe 'API' do
   describe 'POST /import' do
     context 'with valid XML' do
       it 'returns 201 Created' do
-        post '/import', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }
+        post '/import', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
         expect(last_response.status).to eq(201)
       end
 
       it 'returns import count' do
-        post '/import', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }
+        post '/import', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
         body = JSON.parse(last_response.body)
         expect(body['imported']).to eq(2)
       end
@@ -52,7 +57,7 @@ RSpec.describe 'API' do
 
     context 'with invalid XML' do
       it 'returns 400 for malformed XML' do
-        post '/import', '<invalid>', { 'CONTENT_TYPE' => 'text/xml+markr' }
+        post '/import', '<invalid>', { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
         expect(last_response.status).to eq(400)
       end
 
@@ -66,14 +71,14 @@ RSpec.describe 'API' do
           </mcq-test-results>
         XML
 
-        post '/import', xml, { 'CONTENT_TYPE' => 'text/xml+markr' }
+        post '/import', xml, { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
         expect(last_response.status).to eq(400)
       end
     end
 
     context 'with unsupported content-type' do
       it 'returns 415 Unsupported Media Type' do
-        post '/import', '{}', { 'CONTENT_TYPE' => 'application/json' }
+        post '/import', '{}', { 'CONTENT_TYPE' => 'application/json' }.merge(auth_header)
         expect(last_response.status).to eq(415)
       end
     end
@@ -81,7 +86,7 @@ RSpec.describe 'API' do
     context 'with duplicate submissions' do
       it 'keeps higher score' do
         # First submission: score 13
-        post '/import', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }
+        post '/import', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
 
         # Second submission: higher score for same student
         higher_xml = <<~XML
@@ -94,35 +99,42 @@ RSpec.describe 'API' do
           </mcq-test-results>
         XML
 
-        post '/import', higher_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }
+        post '/import', higher_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
 
-        get '/results/9863/aggregate'
+        get '/results/9863/aggregate', {}, auth_header
         body = JSON.parse(last_response.body)
 
         # Max should be 90% (18/20), not 65% (13/20)
         expect(body['max']).to eq(90.0)
       end
     end
+
+    context 'without authentication' do
+      it 'returns 401 Unauthorized' do
+        post '/import', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }
+        expect(last_response.status).to eq(401)
+      end
+    end
   end
 
   describe 'GET /results/:test_id/aggregate' do
     before do
-      post '/import', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }
+      post '/import', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
     end
 
     context 'with existing test' do
       it 'returns 200' do
-        get '/results/9863/aggregate'
+        get '/results/9863/aggregate', {}, auth_header
         expect(last_response.status).to eq(200)
       end
 
       it 'returns JSON content-type' do
-        get '/results/9863/aggregate'
+        get '/results/9863/aggregate', {}, auth_header
         expect(last_response.content_type).to include('application/json')
       end
 
       it 'returns all statistics' do
-        get '/results/9863/aggregate'
+        get '/results/9863/aggregate', {}, auth_header
         body = JSON.parse(last_response.body)
 
         expect(body).to include(
@@ -131,7 +143,7 @@ RSpec.describe 'API' do
       end
 
       it 'calculates correct statistics' do
-        get '/results/9863/aggregate'
+        get '/results/9863/aggregate', {}, auth_header
         body = JSON.parse(last_response.body)
 
         # Scores: 13/20 = 65%, 17/20 = 85%
@@ -144,12 +156,12 @@ RSpec.describe 'API' do
 
     context 'with unknown test' do
       it 'returns 404 Not Found' do
-        get '/results/unknown/aggregate'
+        get '/results/unknown/aggregate', {}, auth_header
         expect(last_response.status).to eq(404)
       end
 
       it 'returns error message' do
-        get '/results/unknown/aggregate'
+        get '/results/unknown/aggregate', {}, auth_header
         body = JSON.parse(last_response.body)
         expect(body['error']).to include('not found')
       end
@@ -168,51 +180,51 @@ RSpec.describe 'API' do
 
     context 'with valid XML' do
       it 'returns 202 Accepted' do
-        post '/import/async', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }
+        post '/import/async', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
         expect(last_response.status).to eq(202)
       end
 
       it 'returns job_id' do
-        post '/import/async', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }
+        post '/import/async', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
         body = JSON.parse(last_response.body)
         expect(body['job_id']).not_to be_nil
       end
 
       it 'returns queued status' do
-        post '/import/async', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }
+        post '/import/async', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
         body = JSON.parse(last_response.body)
         expect(body['status']).to eq('queued')
       end
 
       it 'enqueues a Sidekiq job' do
         expect {
-          post '/import/async', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }
+          post '/import/async', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
         }.to change(Markr::Worker::ImportWorker.jobs, :size).by(1)
       end
     end
 
     context 'with invalid XML' do
       it 'returns 400 for malformed XML' do
-        post '/import/async', '<invalid>', { 'CONTENT_TYPE' => 'text/xml+markr' }
+        post '/import/async', '<invalid>', { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
         expect(last_response.status).to eq(400)
       end
 
       it 'does not enqueue a job for malformed XML' do
         expect {
-          post '/import/async', '<invalid>', { 'CONTENT_TYPE' => 'text/xml+markr' }
+          post '/import/async', '<invalid>', { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
         }.not_to change(Markr::Worker::ImportWorker.jobs, :size)
       end
     end
 
     context 'with unsupported content-type' do
       it 'returns 415 Unsupported Media Type' do
-        post '/import/async', '{}', { 'CONTENT_TYPE' => 'application/json' }
+        post '/import/async', '{}', { 'CONTENT_TYPE' => 'application/json' }.merge(auth_header)
         expect(last_response.status).to eq(415)
       end
 
       it 'does not enqueue a job' do
         expect {
-          post '/import/async', '{}', { 'CONTENT_TYPE' => 'application/json' }
+          post '/import/async', '{}', { 'CONTENT_TYPE' => 'application/json' }.merge(auth_header)
         }.not_to change(Markr::Worker::ImportWorker.jobs, :size)
       end
     end
@@ -238,7 +250,7 @@ RSpec.describe 'API' do
 
         allow(mock_queue).to receive(:any?).and_yield(mock_job).and_return(true)
 
-        get "/jobs/#{job_id}"
+        get "/jobs/#{job_id}", {}, auth_header
         expect(last_response.status).to eq(200)
 
         body = JSON.parse(last_response.body)
@@ -254,7 +266,7 @@ RSpec.describe 'API' do
         allow(mock_queue).to receive(:any?).and_return(false)
         allow(mock_workers).to receive(:any?).and_yield('worker', 'tid', { 'payload' => { 'jid' => job_id } }).and_return(true)
 
-        get "/jobs/#{job_id}"
+        get "/jobs/#{job_id}", {}, auth_header
         expect(last_response.status).to eq(200)
 
         body = JSON.parse(last_response.body)
@@ -272,7 +284,7 @@ RSpec.describe 'API' do
         allow(mock_workers).to receive(:any?).and_return(false)
         allow(mock_retry_set).to receive(:find).and_yield(mock_failed_job).and_return(mock_failed_job)
 
-        get "/jobs/#{job_id}"
+        get "/jobs/#{job_id}", {}, auth_header
         expect(last_response.status).to eq(200)
 
         body = JSON.parse(last_response.body)
@@ -291,7 +303,7 @@ RSpec.describe 'API' do
         allow(mock_retry_set).to receive(:find).and_return(nil)
         allow(mock_dead_set).to receive(:find).and_yield(mock_dead_job).and_return(mock_dead_job)
 
-        get "/jobs/#{job_id}"
+        get "/jobs/#{job_id}", {}, auth_header
         expect(last_response.status).to eq(200)
 
         body = JSON.parse(last_response.body)
@@ -307,7 +319,7 @@ RSpec.describe 'API' do
         allow(mock_retry_set).to receive(:find).and_return(nil)
         allow(mock_dead_set).to receive(:find).and_return(nil)
 
-        get '/jobs/unknown-job-id'
+        get '/jobs/unknown-job-id', {}, auth_header
         expect(last_response.status).to eq(200)
 
         body = JSON.parse(last_response.body)

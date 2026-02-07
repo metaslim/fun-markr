@@ -56,6 +56,23 @@ bundle exec sidekiq -r ./lib/markr.rb -q imports
 bundle exec rspec
 ```
 
+## Authentication
+
+All endpoints (except `/health`) require HTTP Basic Auth.
+
+**Default credentials:**
+- Username: `markr`
+- Password: `secret`
+
+Configure via environment variables:
+- `AUTH_USERNAME`
+- `AUTH_PASSWORD`
+
+**Example:**
+```bash
+curl -u markr:secret http://localhost:4567/results/9863/aggregate
+```
+
 ## API Endpoints
 
 ### POST /import (Synchronous)
@@ -63,7 +80,7 @@ bundle exec rspec
 Import test results immediately. Best for small imports.
 
 ```bash
-curl -X POST http://localhost:4567/import \
+curl -u markr:secret -X POST http://localhost:4567/import \
   -H "Content-Type: text/xml+markr" \
   -d '<mcq-test-results>
         <mcq-test-result>
@@ -84,7 +101,7 @@ curl -X POST http://localhost:4567/import \
 Queue import for background processing. Best for large batch imports.
 
 ```bash
-curl -X POST http://localhost:4567/import/async \
+curl -u markr:secret -X POST http://localhost:4567/import/async \
   -H "Content-Type: text/xml+markr" \
   -d @large_import.xml
 ```
@@ -99,7 +116,7 @@ curl -X POST http://localhost:4567/import/async \
 Check async job status.
 
 ```bash
-curl http://localhost:4567/jobs/abc123
+curl -u markr:secret http://localhost:4567/jobs/abc123
 ```
 
 **Response:**
@@ -114,7 +131,7 @@ Possible statuses: `queued`, `processing`, `completed`, `failed`, `dead`
 Get statistical aggregation for a test.
 
 ```bash
-curl http://localhost:4567/results/9863/aggregate
+curl -u markr:secret http://localhost:4567/results/9863/aggregate
 ```
 
 **Response:**
@@ -212,6 +229,7 @@ bundle exec rspec --format documentation
 | Malformed XML | 400 | Entire document rejected |
 | Missing fields | 400 | Entire document rejected |
 | Unsupported content-type | 415 | Only `text/xml+markr` supported |
+| Unauthorized | 401 | Missing or invalid credentials |
 | Test not found | 404 | No results for that test_id |
 
 ## Tech Stack

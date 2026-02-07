@@ -5,6 +5,10 @@ require 'sidekiq/api'
 require_relative 'lib/markr'
 
 class App < Sinatra::Base
+  # HTTP Basic Auth credentials from environment
+  AUTH_USERNAME = ENV.fetch('AUTH_USERNAME', 'markr')
+  AUTH_PASSWORD = ENV.fetch('AUTH_PASSWORD', 'secret')
+
   configure do
     # PostgreSQL in production, SQLite for local dev fallback
     set :database_url, ENV.fetch('DATABASE_URL', 'sqlite://db/markr_dev.db')
@@ -12,6 +16,20 @@ class App < Sinatra::Base
     set :host_authorization, { permitted_hosts: [] }
     # Bind to all interfaces for Docker
     set :bind, '0.0.0.0'
+  end
+
+  helpers do
+    def protected!
+      return if authorized?
+      headers['WWW-Authenticate'] = 'Basic realm="Markr API"'
+      halt 401, { error: 'Unauthorized' }.to_json
+    end
+
+    def authorized?
+      @auth ||= Rack::Auth::Basic::Request.new(request.env)
+      @auth.provided? && @auth.basic? && @auth.credentials &&
+        @auth.credentials == [AUTH_USERNAME, AUTH_PASSWORD]
+    end
   end
 
   def self.database
@@ -47,6 +65,8 @@ class App < Sinatra::Base
 
   before do
     content_type :json
+    # Protect all endpoints except health check
+    protected! unless request.path_info == '/health'
   end
 
   # Synchronous import - validates and processes immediately

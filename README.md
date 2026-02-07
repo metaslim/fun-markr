@@ -5,14 +5,14 @@ A data ingestion microservice for exam results, built for the Markr coding chall
 ## Quick Start
 
 ```bash
-# Start everything with Docker
+# Run everything: tests, build, start, and verify
+./scripts/run-all.sh
+
+# Or start manually
 docker-compose up
 
 # Run the demo script
 ./scripts/demo.sh
-
-# Or test manually
-curl http://localhost:4567/health
 ```
 
 ## Build & Run Instructions
@@ -260,6 +260,9 @@ Convenience scripts are provided in `scripts/` for common operations:
 
 # Test all edge cases
 ./scripts/test-edge-cases.sh
+
+# Run everything (tests, build, start, verify)
+./scripts/run-all.sh
 ```
 
 **Environment variables** for scripts:

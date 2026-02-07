@@ -1,5 +1,6 @@
 require 'spec_helper'
 require 'rack/test'
+require 'sidekiq/testing'
 require_relative '../../app'
 
 RSpec.describe 'API' do
@@ -152,6 +153,180 @@ RSpec.describe 'API' do
         body = JSON.parse(last_response.body)
         expect(body['error']).to include('not found')
       end
+    end
+  end
+
+  describe 'POST /import/async' do
+    before do
+      Sidekiq::Testing.fake!
+      Sidekiq::Worker.clear_all
+    end
+
+    after do
+      Sidekiq::Worker.clear_all
+    end
+
+    context 'with valid XML' do
+      it 'returns 202 Accepted' do
+        post '/import/async', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }
+        expect(last_response.status).to eq(202)
+      end
+
+      it 'returns job_id' do
+        post '/import/async', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }
+        body = JSON.parse(last_response.body)
+        expect(body['job_id']).not_to be_nil
+      end
+
+      it 'returns queued status' do
+        post '/import/async', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }
+        body = JSON.parse(last_response.body)
+        expect(body['status']).to eq('queued')
+      end
+
+      it 'enqueues a Sidekiq job' do
+        expect {
+          post '/import/async', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }
+        }.to change(Markr::Worker::ImportWorker.jobs, :size).by(1)
+      end
+    end
+
+    context 'with invalid XML' do
+      it 'returns 400 for malformed XML' do
+        post '/import/async', '<invalid>', { 'CONTENT_TYPE' => 'text/xml+markr' }
+        expect(last_response.status).to eq(400)
+      end
+
+      it 'does not enqueue a job for malformed XML' do
+        expect {
+          post '/import/async', '<invalid>', { 'CONTENT_TYPE' => 'text/xml+markr' }
+        }.not_to change(Markr::Worker::ImportWorker.jobs, :size)
+      end
+    end
+
+    context 'with unsupported content-type' do
+      it 'returns 415 Unsupported Media Type' do
+        post '/import/async', '{}', { 'CONTENT_TYPE' => 'application/json' }
+        expect(last_response.status).to eq(415)
+      end
+
+      it 'does not enqueue a job' do
+        expect {
+          post '/import/async', '{}', { 'CONTENT_TYPE' => 'application/json' }
+        }.not_to change(Markr::Worker::ImportWorker.jobs, :size)
+      end
+    end
+  end
+
+  describe 'GET /jobs/:job_id' do
+    let(:mock_queue) { instance_double(Sidekiq::Queue) }
+    let(:mock_workers) { instance_double(Sidekiq::Workers) }
+    let(:mock_retry_set) { instance_double(Sidekiq::RetrySet) }
+    let(:mock_dead_set) { instance_double(Sidekiq::DeadSet) }
+
+    before do
+      allow(Sidekiq::Queue).to receive(:new).with('imports').and_return(mock_queue)
+      allow(Sidekiq::Workers).to receive(:new).and_return(mock_workers)
+      allow(Sidekiq::RetrySet).to receive(:new).and_return(mock_retry_set)
+      allow(Sidekiq::DeadSet).to receive(:new).and_return(mock_dead_set)
+    end
+
+    context 'with queued job' do
+      it 'returns queued status' do
+        job_id = 'test-job-123'
+        mock_job = double('job', jid: job_id)
+
+        allow(mock_queue).to receive(:any?).and_yield(mock_job).and_return(true)
+
+        get "/jobs/#{job_id}"
+        expect(last_response.status).to eq(200)
+
+        body = JSON.parse(last_response.body)
+        expect(body['status']).to eq('queued')
+        expect(body['job_id']).to eq(job_id)
+      end
+    end
+
+    context 'with processing job' do
+      it 'returns processing status' do
+        job_id = 'test-job-456'
+
+        allow(mock_queue).to receive(:any?).and_return(false)
+        allow(mock_workers).to receive(:any?).and_yield('worker', 'tid', { 'payload' => { 'jid' => job_id } }).and_return(true)
+
+        get "/jobs/#{job_id}"
+        expect(last_response.status).to eq(200)
+
+        body = JSON.parse(last_response.body)
+        expect(body['status']).to eq('processing')
+        expect(body['job_id']).to eq(job_id)
+      end
+    end
+
+    context 'with failed job in retry queue' do
+      it 'returns failed status with error' do
+        job_id = 'test-job-789'
+        mock_failed_job = double('job', jid: job_id, item: { 'error_message' => 'Something went wrong' })
+
+        allow(mock_queue).to receive(:any?).and_return(false)
+        allow(mock_workers).to receive(:any?).and_return(false)
+        allow(mock_retry_set).to receive(:find).and_yield(mock_failed_job).and_return(mock_failed_job)
+
+        get "/jobs/#{job_id}"
+        expect(last_response.status).to eq(200)
+
+        body = JSON.parse(last_response.body)
+        expect(body['status']).to eq('failed')
+        expect(body['error']).to eq('Something went wrong')
+      end
+    end
+
+    context 'with dead job' do
+      it 'returns dead status with error' do
+        job_id = 'test-job-dead'
+        mock_dead_job = double('job', jid: job_id, item: { 'error_message' => 'Permanently failed' })
+
+        allow(mock_queue).to receive(:any?).and_return(false)
+        allow(mock_workers).to receive(:any?).and_return(false)
+        allow(mock_retry_set).to receive(:find).and_return(nil)
+        allow(mock_dead_set).to receive(:find).and_yield(mock_dead_job).and_return(mock_dead_job)
+
+        get "/jobs/#{job_id}"
+        expect(last_response.status).to eq(200)
+
+        body = JSON.parse(last_response.body)
+        expect(body['status']).to eq('dead')
+        expect(body['error']).to eq('Permanently failed')
+      end
+    end
+
+    context 'with unknown job_id (assumed completed)' do
+      it 'returns completed status' do
+        allow(mock_queue).to receive(:any?).and_return(false)
+        allow(mock_workers).to receive(:any?).and_return(false)
+        allow(mock_retry_set).to receive(:find).and_return(nil)
+        allow(mock_dead_set).to receive(:find).and_return(nil)
+
+        get '/jobs/unknown-job-id'
+        expect(last_response.status).to eq(200)
+
+        body = JSON.parse(last_response.body)
+        expect(body['status']).to eq('completed')
+        expect(body['job_id']).to eq('unknown-job-id')
+      end
+    end
+  end
+
+  describe 'GET /health' do
+    it 'returns 200' do
+      get '/health'
+      expect(last_response.status).to eq(200)
+    end
+
+    it 'returns ok status' do
+      get '/health'
+      body = JSON.parse(last_response.body)
+      expect(body['status']).to eq('ok')
     end
   end
 end

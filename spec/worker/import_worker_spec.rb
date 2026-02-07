@@ -17,10 +17,22 @@ RSpec.describe Markr::Worker::ImportWorker do
   end
 
   let(:repository) { instance_double(Markr::Repository::TestResultRepository) }
+  let(:aggregate_repository) { instance_double(Markr::Repository::AggregateRepository) }
+  let(:test_result) do
+    Markr::Model::TestResult.new(
+      student_number: '002299',
+      test_id: '9863',
+      marks_available: 20,
+      marks_obtained: 13
+    )
+  end
 
   before do
     Sidekiq::Testing.fake!
     allow(described_class).to receive(:repository).and_return(repository)
+    allow(described_class).to receive(:aggregate_repository).and_return(aggregate_repository)
+    allow(repository).to receive(:find_by_test_id).and_return([test_result])
+    allow(aggregate_repository).to receive(:save)
   end
 
   after do
@@ -45,6 +57,15 @@ RSpec.describe Markr::Worker::ImportWorker do
           marks_obtained: 13
         )
       )
+
+      Sidekiq::Testing.inline! do
+        described_class.perform_async(valid_xml, 'text/xml+markr')
+      end
+    end
+
+    it 'computes and saves aggregates' do
+      allow(repository).to receive(:save)
+      expect(aggregate_repository).to receive(:save).with('9863', hash_including('mean', 'count'))
 
       Sidekiq::Testing.inline! do
         described_class.perform_async(valid_xml, 'text/xml+markr')

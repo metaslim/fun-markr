@@ -56,11 +56,25 @@ class App < Sinatra::Base
       unique [:student_number, :test_id]
       index :test_id
     end
+    @database.create_table?(:test_aggregates) do
+      primary_key :id
+      String :test_id, null: false, unique: true
+      String :data, text: true  # JSON blob
+      DateTime :created_at
+      DateTime :updated_at
+
+      index :test_id
+    end
     @repository = nil
+    @aggregate_repository = nil
   end
 
   def self.repository
     @repository ||= Markr::Repository::TestResultRepository.new(database)
+  end
+
+  def self.aggregate_repository
+    @aggregate_repository ||= Markr::Repository::AggregateRepository.new(database)
   end
 
   before do
@@ -69,32 +83,8 @@ class App < Sinatra::Base
     protected! unless request.path_info == '/health'
   end
 
-  # Synchronous import - validates and processes immediately
-  # Use for small imports or when immediate feedback is needed
+  # Import endpoint - queues for background processing via Sidekiq
   post '/import' do
-    begin
-      loader = Markr::Loader::LoaderFactory.for_content_type(request.content_type)
-      results = loader.parse(request.body.read)
-
-      results.each do |result|
-        halt 400, { error: 'Invalid test result' }.to_json unless result.valid?
-        self.class.repository.save(result)
-      end
-
-      status 201
-      { imported: results.size }.to_json
-    rescue Markr::Loader::UnsupportedContentTypeError => e
-      halt 415, { error: e.message }.to_json
-    rescue Nokogiri::XML::SyntaxError => e
-      halt 400, { error: "Invalid XML: #{e.message}" }.to_json
-    rescue Markr::Loader::InvalidDocumentError => e
-      halt 400, { error: e.message }.to_json
-    end
-  end
-
-  # Asynchronous import - queues for background processing
-  # Use for large batch imports to avoid timeouts
-  post '/import/async' do
     begin
       content = request.body.read
       content_type_header = request.content_type
@@ -160,25 +150,14 @@ class App < Sinatra::Base
   get '/results/:test_id/aggregate' do
     test_id = params[:test_id]
 
-    unless self.class.repository.exists?(test_id)
+    # Read from pre-computed cache
+    cached = self.class.aggregate_repository.find_by_test_id(test_id)
+
+    unless cached
       halt 404, { error: 'Test not found' }.to_json
     end
 
-    results = self.class.repository.find_by_test_id(test_id)
-    scores = results.map(&:percentage)
-
-    report = Markr::Report::AggregateReport.new(scores)
-      .add(Markr::Aggregator::Mean.new)
-      .add(Markr::Aggregator::StdDev.new)
-      .add(Markr::Aggregator::Min.new)
-      .add(Markr::Aggregator::Max.new)
-      .add(Markr::Aggregator::Count.new)
-      .add(Markr::Aggregator::Percentile.new(25))
-      .add(Markr::Aggregator::Percentile.new(50))
-      .add(Markr::Aggregator::Percentile.new(75))
-      .build
-
-    report.to_json
+    cached.to_json
   end
 
   # Health check endpoint

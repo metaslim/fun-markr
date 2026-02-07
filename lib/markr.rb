@@ -20,6 +20,7 @@ require_relative 'markr/report/aggregate_report'
 
 # Repository
 require_relative 'markr/repository/test_result_repository'
+require_relative 'markr/repository/aggregate_repository'
 
 # Workers
 require_relative 'markr/worker/import_worker'

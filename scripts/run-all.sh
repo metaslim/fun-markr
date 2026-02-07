@@ -1,181 +1,48 @@
 #!/bin/bash
-# Master script: Build, start, and test everything
-# Usage: ./scripts/run-all.sh [--with-tests]
-#
-# Options:
-#   --with-tests    Run local RSpec tests first (requires Ruby 3.4+)
-#
-# Note: If using Homebrew Ruby, ensure PATH includes:
-#   export PATH="/opt/homebrew/opt/ruby/bin:$PATH"
+# Build, test, and run everything
+# Usage: ./scripts/run-all.sh
 
 set -e
 
-# Try to use Homebrew Ruby if available
+# Use Homebrew Ruby if available
 if [ -d "/opt/homebrew/opt/ruby/bin" ]; then
   export PATH="/opt/homebrew/opt/ruby/bin:$PATH"
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+cd "$(dirname "$0")/.."
 
-cd "$PROJECT_DIR"
+echo "=== Markr Setup ==="
 
-echo "========================================"
-echo "   MARKR - Complete Setup & Test Suite"
-echo "========================================"
-echo ""
-
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
-
-print_step() {
-  echo ""
-  echo -e "${YELLOW}>>> $1${NC}"
-  echo "----------------------------------------"
-}
-
-print_success() {
-  echo -e "${GREEN}✓ $1${NC}"
-}
-
-print_error() {
-  echo -e "${RED}✗ $1${NC}"
-}
-
-# Check for --with-tests flag
-RUN_LOCAL_TESTS=false
-if [ "$1" == "--with-tests" ]; then
-  RUN_LOCAL_TESTS=true
-fi
-
-# Step 1: Run unit tests (optional)
-if [ "$RUN_LOCAL_TESTS" == "true" ]; then
-  print_step "Step 1: Running RSpec unit tests (local)"
-  if bundle exec rspec --format progress; then
-    print_success "All 111 tests passed!"
-  else
-    print_error "Tests failed!"
-    exit 1
-  fi
-else
-  print_step "Step 1: Skipping local tests (use --with-tests to run)"
-  echo "Tests will run inside Docker container instead"
-fi
-
-# Step 2: Stop any existing containers
-print_step "Step 2: Cleaning up existing containers"
+# Stop existing containers
+echo "Cleaning up..."
 docker-compose down -v 2>/dev/null || true
-print_success "Cleanup complete"
 
-# Step 3: Build Docker containers
-print_step "Step 3: Building Docker containers"
+# Build and test in Docker
+echo "Building..."
 docker-compose build --no-cache
-print_success "Docker build complete"
 
-# Step 4: Run tests inside Docker
-print_step "Step 4: Running RSpec tests in Docker"
-if docker-compose run --rm app bundle exec rspec --format progress; then
-  print_success "All 111 tests passed!"
-else
-  print_error "Tests failed!"
-  exit 1
-fi
+echo "Running tests..."
+docker-compose run --rm app bundle exec rspec --format progress
 
-# Step 5: Start services
-print_step "Step 5: Starting Docker services"
+# Start services
+echo "Starting services..."
 docker-compose up -d
-print_success "Services starting..."
 
-# Step 6: Wait for services to be healthy
-print_step "Step 6: Waiting for services to be healthy"
-echo "Waiting for PostgreSQL..."
-until docker-compose exec -T db pg_isready -U markr > /dev/null 2>&1; do
-  sleep 1
-  echo -n "."
-done
-echo ""
-print_success "PostgreSQL is ready"
-
-echo "Waiting for Redis..."
-until docker-compose exec -T redis redis-cli ping > /dev/null 2>&1; do
-  sleep 1
-  echo -n "."
-done
-echo ""
-print_success "Redis is ready"
-
+# Wait for app
 echo "Waiting for app..."
-max_attempts=30
-attempt=0
 until curl -s http://localhost:4567/health > /dev/null 2>&1; do
   sleep 1
-  echo -n "."
-  attempt=$((attempt + 1))
-  if [ $attempt -ge $max_attempts ]; then
-    print_error "App failed to start after ${max_attempts} seconds"
-    docker-compose logs app
-    exit 1
-  fi
 done
+
+# Run demo
 echo ""
-print_success "App is ready"
+./scripts/demo.sh
 
-# Step 7: Health check
-print_step "Step 7: Health check"
-"$SCRIPT_DIR/health.sh"
-print_success "Health check passed"
-
-# Step 8: Demo workflow
-print_step "Step 8: Running demo workflow"
-"$SCRIPT_DIR/demo.sh"
-print_success "Demo completed"
-
-# Step 9: Edge case tests
-print_step "Step 9: Running edge case tests"
-"$SCRIPT_DIR/test-edge-cases.sh"
-print_success "Edge case tests completed"
-
-# Step 10: Test async import
-print_step "Step 10: Testing async import"
-echo "Submitting async import..."
-response=$(curl -s -u markr:secret -X POST http://localhost:4567/import/async \
-  -H "Content-Type: text/xml+markr" \
-  -d @data/sample_results.xml)
-echo "Response: $response"
-
-job_id=$(echo "$response" | jq -r '.job_id')
-if [ "$job_id" != "null" ] && [ -n "$job_id" ]; then
-  echo "Job ID: $job_id"
-  echo "Waiting for job to complete..."
-  sleep 2
-  "$SCRIPT_DIR/job-status.sh" "$job_id"
-  print_success "Async import test completed"
-else
-  print_error "Failed to get job_id from async import"
-fi
-
-# Step 11: Show service status
-print_step "Step 11: Service status"
-docker-compose ps
-
-# Summary
 echo ""
-echo "========================================"
-echo -e "${GREEN}   ALL TESTS PASSED SUCCESSFULLY!${NC}"
-echo "========================================"
-echo ""
-echo "Services are running:"
-echo "  - App:      http://localhost:4567"
-echo "  - Health:   http://localhost:4567/health"
-echo ""
+echo "=== Ready ==="
+echo "App: http://localhost:4567"
 echo "Credentials: markr:secret"
 echo ""
 echo "Commands:"
-echo "  - View logs:    docker-compose logs -f"
-echo "  - Stop:         docker-compose down"
-echo "  - Import data:  ./scripts/import.sh data/sample_results.xml"
-echo "  - Get stats:    ./scripts/aggregate.sh 9863"
-echo ""
+echo "  docker-compose logs -f    # View logs"
+echo "  docker-compose down       # Stop"

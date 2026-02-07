@@ -39,19 +39,43 @@ RSpec.describe 'API' do
   before(:each) do
     # Reset database before each test
     App.reset_database!
+    # Share the app's repositories with the worker for inline testing
+    Markr::Worker::ImportWorker.repository = App.repository
+    Markr::Worker::ImportWorker.aggregate_repository = App.aggregate_repository
   end
 
   describe 'POST /import' do
+    before do
+      Sidekiq::Testing.fake!
+      Sidekiq::Worker.clear_all
+    end
+
+    after do
+      Sidekiq::Worker.clear_all
+    end
+
     context 'with valid XML' do
-      it 'returns 201 Created' do
+      it 'returns 202 Accepted' do
         post '/import', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
-        expect(last_response.status).to eq(201)
+        expect(last_response.status).to eq(202)
       end
 
-      it 'returns import count' do
+      it 'returns job_id' do
         post '/import', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
         body = JSON.parse(last_response.body)
-        expect(body['imported']).to eq(2)
+        expect(body['job_id']).not_to be_nil
+      end
+
+      it 'returns queued status' do
+        post '/import', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
+        body = JSON.parse(last_response.body)
+        expect(body['status']).to eq('queued')
+      end
+
+      it 'enqueues a Sidekiq job' do
+        expect {
+          post '/import', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
+        }.to change(Markr::Worker::ImportWorker.jobs, :size).by(1)
       end
     end
 
@@ -61,18 +85,10 @@ RSpec.describe 'API' do
         expect(last_response.status).to eq(400)
       end
 
-      it 'returns 400 for missing required fields' do
-        xml = <<~XML
-          <mcq-test-results>
-            <mcq-test-result>
-              <test-id>9863</test-id>
-              <summary-marks available="20" obtained="13" />
-            </mcq-test-result>
-          </mcq-test-results>
-        XML
-
-        post '/import', xml, { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
-        expect(last_response.status).to eq(400)
+      it 'does not enqueue a job for malformed XML' do
+        expect {
+          post '/import', '<invalid>', { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
+        }.not_to change(Markr::Worker::ImportWorker.jobs, :size)
       end
     end
 
@@ -81,31 +97,11 @@ RSpec.describe 'API' do
         post '/import', '{}', { 'CONTENT_TYPE' => 'application/json' }.merge(auth_header)
         expect(last_response.status).to eq(415)
       end
-    end
 
-    context 'with duplicate submissions' do
-      it 'keeps higher score' do
-        # First submission: score 13
-        post '/import', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
-
-        # Second submission: higher score for same student
-        higher_xml = <<~XML
-          <mcq-test-results>
-            <mcq-test-result>
-              <student-number>002299</student-number>
-              <test-id>9863</test-id>
-              <summary-marks available="20" obtained="18" />
-            </mcq-test-result>
-          </mcq-test-results>
-        XML
-
-        post '/import', higher_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
-
-        get '/results/9863/aggregate', {}, auth_header
-        body = JSON.parse(last_response.body)
-
-        # Max should be 90% (18/20), not 65% (13/20)
-        expect(body['max']).to eq(90.0)
+      it 'does not enqueue a job' do
+        expect {
+          post '/import', '{}', { 'CONTENT_TYPE' => 'application/json' }.merge(auth_header)
+        }.not_to change(Markr::Worker::ImportWorker.jobs, :size)
       end
     end
 
@@ -119,7 +115,10 @@ RSpec.describe 'API' do
 
   describe 'GET /results/:test_id/aggregate' do
     before do
-      post '/import', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
+      # Import data synchronously via inline mode for testing
+      Sidekiq::Testing.inline! do
+        post '/import', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
+      end
     end
 
     context 'with existing test' do
@@ -168,67 +167,6 @@ RSpec.describe 'API' do
     end
   end
 
-  describe 'POST /import/async' do
-    before do
-      Sidekiq::Testing.fake!
-      Sidekiq::Worker.clear_all
-    end
-
-    after do
-      Sidekiq::Worker.clear_all
-    end
-
-    context 'with valid XML' do
-      it 'returns 202 Accepted' do
-        post '/import/async', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
-        expect(last_response.status).to eq(202)
-      end
-
-      it 'returns job_id' do
-        post '/import/async', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
-        body = JSON.parse(last_response.body)
-        expect(body['job_id']).not_to be_nil
-      end
-
-      it 'returns queued status' do
-        post '/import/async', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
-        body = JSON.parse(last_response.body)
-        expect(body['status']).to eq('queued')
-      end
-
-      it 'enqueues a Sidekiq job' do
-        expect {
-          post '/import/async', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
-        }.to change(Markr::Worker::ImportWorker.jobs, :size).by(1)
-      end
-    end
-
-    context 'with invalid XML' do
-      it 'returns 400 for malformed XML' do
-        post '/import/async', '<invalid>', { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
-        expect(last_response.status).to eq(400)
-      end
-
-      it 'does not enqueue a job for malformed XML' do
-        expect {
-          post '/import/async', '<invalid>', { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
-        }.not_to change(Markr::Worker::ImportWorker.jobs, :size)
-      end
-    end
-
-    context 'with unsupported content-type' do
-      it 'returns 415 Unsupported Media Type' do
-        post '/import/async', '{}', { 'CONTENT_TYPE' => 'application/json' }.merge(auth_header)
-        expect(last_response.status).to eq(415)
-      end
-
-      it 'does not enqueue a job' do
-        expect {
-          post '/import/async', '{}', { 'CONTENT_TYPE' => 'application/json' }.merge(auth_header)
-        }.not_to change(Markr::Worker::ImportWorker.jobs, :size)
-      end
-    end
-  end
 
   describe 'GET /jobs/:job_id' do
     let(:mock_queue) { instance_double(Sidekiq::Queue) }

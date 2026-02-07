@@ -41,3 +41,7 @@
 
 # SQLite database
 /db/*.db
+
+# Frontend
+/frontend/node_modules/
+/frontend/dist/

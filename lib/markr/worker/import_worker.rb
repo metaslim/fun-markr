@@ -1,4 +1,5 @@
 require 'sidekiq'
+require 'sequel'
 require_relative '../../../config/sidekiq'
 require_relative '../loader/loader_factory'
 require_relative '../repository/test_result_repository'

@@ -2,12 +2,19 @@ require 'sinatra/base'
 require 'json'
 require 'sequel'
 require 'sidekiq/api'
+require 'sidekiq-status'
 require_relative 'lib/markr'
+require_relative 'lib/markr/middleware/cors'
+require_relative 'lib/markr/middleware/auth'
 
 class App < Sinatra::Base
   # HTTP Basic Auth credentials from environment
   AUTH_USERNAME = ENV.fetch('AUTH_USERNAME', 'markr')
   AUTH_PASSWORD = ENV.fetch('AUTH_PASSWORD', 'secret')
+
+  # Use middleware for cross-cutting concerns
+  use Markr::Middleware::Cors
+  use Markr::Middleware::Auth, username: AUTH_USERNAME, password: AUTH_PASSWORD
 
   configure do
     # PostgreSQL in production, SQLite for local dev fallback
@@ -18,35 +25,7 @@ class App < Sinatra::Base
     set :bind, '0.0.0.0'
   end
 
-  # CORS support for frontend
   set :protection, except: [:http_origin]
-
-  before do
-    response.headers['Access-Control-Allow-Origin'] = '*'
-    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
-    response.headers['Access-Control-Allow-Headers'] = 'Authorization, Content-Type'
-  end
-
-  options '*' do
-    response.headers['Access-Control-Allow-Origin'] = '*'
-    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
-    response.headers['Access-Control-Allow-Headers'] = 'Authorization, Content-Type'
-    200
-  end
-
-  helpers do
-    def protected!
-      return if authorized?
-      headers['WWW-Authenticate'] = 'Basic realm="Markr API"'
-      halt 401, { error: 'Unauthorized' }.to_json
-    end
-
-    def authorized?
-      @auth ||= Rack::Auth::Basic::Request.new(request.env)
-      @auth.provided? && @auth.basic? && @auth.credentials &&
-        @auth.credentials == [AUTH_USERNAME, AUTH_PASSWORD]
-    end
-  end
 
   def self.database
     @database ||= Sequel.connect(settings.database_url)
@@ -110,8 +89,6 @@ class App < Sinatra::Base
 
   before do
     content_type :json
-    # Protect all endpoints except health check and OPTIONS (CORS preflight)
-    protected! unless request.path_info == '/health' || request.request_method == 'OPTIONS'
   end
 
   # Import endpoint - queues for background processing via Sidekiq
@@ -120,11 +97,11 @@ class App < Sinatra::Base
       content = request.body.read
       content_type_header = request.content_type
 
-      # Validate content type before queuing
-      Markr::Loader::LoaderFactory.for_content_type(content_type_header)
+      # Get loader for content type (raises UnsupportedContentTypeError if invalid)
+      loader = Markr::Loader::LoaderFactory.for_content_type(content_type_header)
 
-      # Quick XML validation (structure only, not business rules)
-      Nokogiri::XML(content) { |config| config.strict }
+      # Quick syntax validation before queuing (format-specific, not business rules)
+      loader.validate(content)
 
       # Enqueue for background processing
       job_id = Markr::Worker::ImportWorker.perform_async(content, content_type_header)
@@ -133,49 +110,38 @@ class App < Sinatra::Base
       { job_id: job_id, status: 'queued' }.to_json
     rescue Markr::Loader::UnsupportedContentTypeError => e
       halt 415, { error: e.message }.to_json
-    rescue Nokogiri::XML::SyntaxError => e
-      halt 400, { error: "Invalid XML: #{e.message}" }.to_json
+    rescue Markr::Loader::InvalidDocumentError => e
+      halt 400, { error: e.message }.to_json
     end
   end
 
-  # Check job status
+  # Check job status using sidekiq-status gem
   get '/jobs/:job_id' do
     job_id = params[:job_id]
 
-    # Check if job is still in queue
-    queue = Sidekiq::Queue.new('imports')
-    in_queue = queue.any? { |job| job.jid == job_id }
+    # Use sidekiq-status to get job status
+    status = Sidekiq::Status.status(job_id)
 
-    if in_queue
-      return { job_id: job_id, status: 'queued' }.to_json
+    case status
+    when :queued
+      { job_id: job_id, status: 'queued' }.to_json
+    when :working
+      { job_id: job_id, status: 'processing' }.to_json
+    when :complete
+      test_ids = Sidekiq::Status.get(job_id, :test_ids)
+      {
+        job_id: job_id,
+        status: 'completed',
+        test_ids: test_ids&.split(',') || []
+      }.to_json
+    when :failed
+      { job_id: job_id, status: 'failed', error: 'Job failed' }.to_json
+    when :interrupted
+      { job_id: job_id, status: 'failed', error: 'Job interrupted' }.to_json
+    else
+      # Status not found - job may have expired or never existed
+      { job_id: job_id, status: 'unknown' }.to_json
     end
-
-    # Check if job is being processed
-    workers = Sidekiq::Workers.new
-    processing = workers.any? { |_, _, work| work['payload']['jid'] == job_id }
-
-    if processing
-      return { job_id: job_id, status: 'processing' }.to_json
-    end
-
-    # Check retry set for failed jobs
-    retry_set = Sidekiq::RetrySet.new
-    failed = retry_set.find { |job| job.jid == job_id }
-
-    if failed
-      return { job_id: job_id, status: 'failed', error: failed.item['error_message'] }.to_json
-    end
-
-    # Check dead set for permanently failed jobs
-    dead_set = Sidekiq::DeadSet.new
-    dead = dead_set.find { |job| job.jid == job_id }
-
-    if dead
-      return { job_id: job_id, status: 'dead', error: dead.item['error_message'] }.to_json
-    end
-
-    # If not found anywhere, assume completed
-    { job_id: job_id, status: 'completed' }.to_json
   end
 
   get '/results/:test_id/aggregate' do

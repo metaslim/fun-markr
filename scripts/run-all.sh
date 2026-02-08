@@ -24,9 +24,9 @@ docker-compose build --no-cache
 echo "Running tests..."
 docker-compose run --rm app bundle exec rspec --format progress
 
-# Start services
+# Start services (force recreate to use new images)
 echo "Starting services..."
-docker-compose up -d
+docker-compose up -d --force-recreate
 
 # Wait for app
 echo "Waiting for app..."

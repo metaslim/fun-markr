@@ -1,30 +1,33 @@
 require_relative '../model/test_result'
+require_relative 'base_repository'
 require_relative 'student_repository'
 
 module Markr
   module Repository
-    class TestResultRepository
+    class TestResultRepository < BaseRepository
       def initialize(db)
-        @db = db
+        super(db)
         @student_repo = StudentRepository.new(db)
       end
 
       def save(test_result)
-        # First, find or create the student
-        student = @student_repo.find_or_create(
-          student_number: test_result.student_number,
-          name: test_result.student_name
-        )
+        with_error_handling do
+          # First, find or create the student
+          student = @student_repo.find_or_create(
+            student_number: test_result.student_number,
+            name: test_result.student_name
+          )
 
-        existing = @db[:test_results].where(
-          student_id: student[:id],
-          test_id: test_result.test_id
-        ).first
+          existing = @db[:test_results].where(
+            student_id: student[:id],
+            test_id: test_result.test_id
+          ).first
 
-        if existing
-          update_if_higher_score(existing, test_result)
-        else
-          insert_new(student[:id], test_result)
+          if existing
+            update_if_higher_score(existing, test_result)
+          else
+            insert_new(student[:id], test_result)
+          end
         end
       end
 
@@ -70,45 +73,47 @@ module Markr
           .order(Sequel.desc(:marks_obtained))
           .select_all(:test_results)
           .select_append(Sequel[:students][:student_number], Sequel[:students][:name].as(:student_name))
-          .map { |row| row_to_hash_with_student(row) }
+          .map { |row| row_to_hash(row) }
       end
 
       private
 
-      def row_to_hash(row, student)
-        percentage = (row[:marks_obtained].to_f / row[:marks_available] * 100).round(2)
+      def row_to_hash(row, student = nil)
+        model = row_to_model_with_student(row, student)
         {
-          student_number: student[:student_number],
-          student_name: student[:name],
-          test_id: row[:test_id],
-          marks_available: row[:marks_available],
-          marks_obtained: row[:marks_obtained],
-          percentage: percentage,
-          scanned_on: row[:scanned_on]
+          student_number: model.student_number,
+          student_name: model.student_name,
+          test_id: model.test_id,
+          marks_available: model.marks_available,
+          marks_obtained: model.marks_obtained,
+          percentage: model.percentage,
+          scanned_on: model.scanned_on
         }
       end
 
-      def row_to_hash_with_student(row)
-        percentage = (row[:marks_obtained].to_f / row[:marks_available] * 100).round(2)
-        {
-          student_number: row[:student_number],
-          student_name: row[:student_name],
+      def row_to_model_with_student(row, student = nil)
+        Model::TestResult.new(
+          student_number: student ? student[:student_number] : row[:student_number],
+          student_name: student ? student[:name] : row[:student_name],
           test_id: row[:test_id],
           marks_available: row[:marks_available],
           marks_obtained: row[:marks_obtained],
-          percentage: percentage,
           scanned_on: row[:scanned_on]
-        }
+        )
       end
 
       def update_if_higher_score(existing, test_result)
-        return unless test_result.marks_obtained > existing[:marks_obtained]
+        new_obtained = [test_result.marks_obtained, existing[:marks_obtained]].max
+        new_available = [test_result.marks_available, existing[:marks_available]].max
+
+        # Only update if something changed
+        return if new_obtained == existing[:marks_obtained] && new_available == existing[:marks_available]
 
         @db[:test_results]
           .where(id: existing[:id])
           .update(
-            marks_obtained: test_result.marks_obtained,
-            marks_available: test_result.marks_available,
+            marks_obtained: new_obtained,
+            marks_available: new_available,
             updated_at: Time.now
           )
       end

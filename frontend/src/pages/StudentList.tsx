@@ -4,11 +4,36 @@ import { listStudents } from '../services/api';
 import { useContextStore } from '../stores/contextStore';
 import type { Student } from '../types';
 
+const STUDENTS_PER_PAGE = 20;
+
+function getInitials(name: string | null | undefined): string {
+  if (!name) return '?';
+  const parts = name.split(' ').filter(Boolean);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+  return name.slice(0, 2).toUpperCase();
+}
+
+function getAvatarColor(name: string | null | undefined): string {
+  const colors = [
+    'bg-emerald-100 text-emerald-700',
+    'bg-blue-100 text-blue-700',
+    'bg-purple-100 text-purple-700',
+    'bg-amber-100 text-amber-700',
+    'bg-rose-100 text-rose-700',
+    'bg-cyan-100 text-cyan-700',
+  ];
+  const hash = (name || '').split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  return colors[hash % colors.length];
+}
+
 export function StudentList() {
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
 
   const addPageVisit = useContextStore((state) => state.addPageVisit);
 
@@ -35,6 +60,17 @@ export function StudentList() {
     );
   });
 
+  // Reset to page 1 when search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
+
+  const totalPages = Math.ceil(filteredStudents.length / STUDENTS_PER_PAGE);
+  const paginatedStudents = filteredStudents.slice(
+    (currentPage - 1) * STUDENTS_PER_PAGE,
+    currentPage * STUDENTS_PER_PAGE
+  );
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -58,8 +94,11 @@ export function StudentList() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Students</h1>
-          <p className="text-gray-500 mt-1">{students.length} students enrolled</p>
+          <h1 className="text-2xl font-bold text-gray-900">Students</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            {filteredStudents.length} {filteredStudents.length === 1 ? 'student' : 'students'}
+            {searchTerm && ` matching "${searchTerm}"`}
+          </p>
         </div>
 
         {/* Search */}
@@ -87,28 +126,111 @@ export function StudentList() {
         </div>
       </div>
 
-      {/* Students Grid */}
+      {/* Students Table */}
       {filteredStudents.length > 0 ? (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {filteredStudents.map((student) => (
-            <Link
-              key={student.id}
-              to={`/students/${student.student_number}`}
-              className="bg-white border border-gray-200 rounded-xl p-5 hover:shadow-lg hover:border-emerald-300 transition-all group"
-            >
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center group-hover:bg-emerald-200 transition-colors">
-                  <span className="text-xl">👤</span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-gray-900 truncate group-hover:text-emerald-600 transition-colors">
-                    {student.name || 'Unknown'}
-                  </h3>
-                  <p className="text-sm text-gray-500">ID: {student.student_number}</p>
-                </div>
+        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b border-gray-200 sticky top-0">
+                <tr>
+                  <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-3">
+                    Name
+                  </th>
+                  <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-6 py-3">
+                    Student ID
+                  </th>
+                  <th className="w-10"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {paginatedStudents.map((student, index) => (
+                  <tr
+                    key={student.id}
+                    className={`hover:bg-emerald-50/50 transition-colors ${index % 2 === 1 ? 'bg-gray-50/50' : ''}`}
+                  >
+                    <td className="px-6 py-3">
+                      <Link
+                        to={`/students/${student.student_number}`}
+                        className="flex items-center gap-3 group"
+                      >
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold ${getAvatarColor(student.name)}`}>
+                          {getInitials(student.name)}
+                        </div>
+                        <span className="font-medium text-gray-900 group-hover:text-emerald-600 transition-colors">
+                          {student.name || 'Unknown'}
+                        </span>
+                      </Link>
+                    </td>
+                    <td className="px-6 py-3 text-gray-500 font-mono text-sm">
+                      {student.student_number}
+                    </td>
+                    <td className="px-6 py-3">
+                      <Link
+                        to={`/students/${student.student_number}`}
+                        className="text-gray-400 hover:text-emerald-500 transition-colors"
+                      >
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200 bg-gray-50">
+              <div className="text-sm text-gray-500">
+                Showing {(currentPage - 1) * STUDENTS_PER_PAGE + 1} to {Math.min(currentPage * STUDENTS_PER_PAGE, filteredStudents.length)} of {filteredStudents.length}
               </div>
-            </Link>
-          ))}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1.5 text-sm font-medium rounded-lg border border-gray-200 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Previous
+                </button>
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let page: number;
+                    if (totalPages <= 5) {
+                      page = i + 1;
+                    } else if (currentPage <= 3) {
+                      page = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      page = totalPages - 4 + i;
+                    } else {
+                      page = currentPage - 2 + i;
+                    }
+                    return (
+                      <button
+                        key={page}
+                        onClick={() => setCurrentPage(page)}
+                        className={`w-8 h-8 text-sm font-medium rounded-lg transition-colors ${
+                          currentPage === page
+                            ? 'bg-emerald-500 text-white'
+                            : 'hover:bg-gray-100 text-gray-600'
+                        }`}
+                      >
+                        {page}
+                      </button>
+                    );
+                  })}
+                </div>
+                <button
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-1.5 text-sm font-medium rounded-lg border border-gray-200 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div className="text-center py-12 bg-white border-2 border-dashed border-gray-200 rounded-2xl">

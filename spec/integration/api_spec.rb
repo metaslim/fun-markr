@@ -169,24 +169,12 @@ RSpec.describe 'API' do
 
 
   describe 'GET /jobs/:job_id' do
-    let(:mock_queue) { instance_double(Sidekiq::Queue) }
-    let(:mock_workers) { instance_double(Sidekiq::Workers) }
-    let(:mock_retry_set) { instance_double(Sidekiq::RetrySet) }
-    let(:mock_dead_set) { instance_double(Sidekiq::DeadSet) }
-
-    before do
-      allow(Sidekiq::Queue).to receive(:new).with('imports').and_return(mock_queue)
-      allow(Sidekiq::Workers).to receive(:new).and_return(mock_workers)
-      allow(Sidekiq::RetrySet).to receive(:new).and_return(mock_retry_set)
-      allow(Sidekiq::DeadSet).to receive(:new).and_return(mock_dead_set)
-    end
+    # Uses sidekiq-status gem for job status tracking
 
     context 'with queued job' do
       it 'returns queued status' do
         job_id = 'test-job-123'
-        mock_job = double('job', jid: job_id)
-
-        allow(mock_queue).to receive(:any?).and_yield(mock_job).and_return(true)
+        allow(Sidekiq::Status).to receive(:status).with(job_id).and_return(:queued)
 
         get "/jobs/#{job_id}", {}, auth_header
         expect(last_response.status).to eq(200)
@@ -200,9 +188,7 @@ RSpec.describe 'API' do
     context 'with processing job' do
       it 'returns processing status' do
         job_id = 'test-job-456'
-
-        allow(mock_queue).to receive(:any?).and_return(false)
-        allow(mock_workers).to receive(:any?).and_yield('worker', 'tid', { 'payload' => { 'jid' => job_id } }).and_return(true)
+        allow(Sidekiq::Status).to receive(:status).with(job_id).and_return(:working)
 
         get "/jobs/#{job_id}", {}, auth_header
         expect(last_response.status).to eq(200)
@@ -213,55 +199,59 @@ RSpec.describe 'API' do
       end
     end
 
-    context 'with failed job in retry queue' do
+    context 'with failed job' do
       it 'returns failed status with error' do
         job_id = 'test-job-789'
-        mock_failed_job = double('job', jid: job_id, item: { 'error_message' => 'Something went wrong' })
-
-        allow(mock_queue).to receive(:any?).and_return(false)
-        allow(mock_workers).to receive(:any?).and_return(false)
-        allow(mock_retry_set).to receive(:find).and_yield(mock_failed_job).and_return(mock_failed_job)
+        allow(Sidekiq::Status).to receive(:status).with(job_id).and_return(:failed)
 
         get "/jobs/#{job_id}", {}, auth_header
         expect(last_response.status).to eq(200)
 
         body = JSON.parse(last_response.body)
         expect(body['status']).to eq('failed')
-        expect(body['error']).to eq('Something went wrong')
+        expect(body['error']).to eq('Job failed')
       end
     end
 
-    context 'with dead job' do
-      it 'returns dead status with error' do
-        job_id = 'test-job-dead'
-        mock_dead_job = double('job', jid: job_id, item: { 'error_message' => 'Permanently failed' })
-
-        allow(mock_queue).to receive(:any?).and_return(false)
-        allow(mock_workers).to receive(:any?).and_return(false)
-        allow(mock_retry_set).to receive(:find).and_return(nil)
-        allow(mock_dead_set).to receive(:find).and_yield(mock_dead_job).and_return(mock_dead_job)
+    context 'with interrupted job' do
+      it 'returns failed status with error' do
+        job_id = 'test-job-int'
+        allow(Sidekiq::Status).to receive(:status).with(job_id).and_return(:interrupted)
 
         get "/jobs/#{job_id}", {}, auth_header
         expect(last_response.status).to eq(200)
 
         body = JSON.parse(last_response.body)
-        expect(body['status']).to eq('dead')
-        expect(body['error']).to eq('Permanently failed')
+        expect(body['status']).to eq('failed')
+        expect(body['error']).to eq('Job interrupted')
       end
     end
 
-    context 'with unknown job_id (assumed completed)' do
-      it 'returns completed status' do
-        allow(mock_queue).to receive(:any?).and_return(false)
-        allow(mock_workers).to receive(:any?).and_return(false)
-        allow(mock_retry_set).to receive(:find).and_return(nil)
-        allow(mock_dead_set).to receive(:find).and_return(nil)
+    context 'with completed job' do
+      it 'returns completed status with test_ids' do
+        job_id = 'test-job-done'
+        allow(Sidekiq::Status).to receive(:status).with(job_id).and_return(:complete)
+        allow(Sidekiq::Status).to receive(:get).with(job_id, :test_ids).and_return('9863,9864')
+
+        get "/jobs/#{job_id}", {}, auth_header
+        expect(last_response.status).to eq(200)
+
+        body = JSON.parse(last_response.body)
+        expect(body['status']).to eq('completed')
+        expect(body['job_id']).to eq(job_id)
+        expect(body['test_ids']).to eq(['9863', '9864'])
+      end
+    end
+
+    context 'with unknown job_id' do
+      it 'returns unknown status' do
+        allow(Sidekiq::Status).to receive(:status).with('unknown-job-id').and_return(nil)
 
         get '/jobs/unknown-job-id', {}, auth_header
         expect(last_response.status).to eq(200)
 
         body = JSON.parse(last_response.body)
-        expect(body['status']).to eq('completed')
+        expect(body['status']).to eq('unknown')
         expect(body['job_id']).to eq('unknown-job-id')
       end
     end

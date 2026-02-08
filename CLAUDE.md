@@ -1,68 +1,82 @@
 # CLAUDE.md
 
-## Commands
+This file helps Claude Code understand how to work with this codebase.
+
+## Project Overview
+
+Markr is a test results microservice with a React dashboard. Backend is Ruby/Sinatra with async processing via Sidekiq (using sidekiq-status for job tracking). Frontend is React/TypeScript with an AI assistant.
+
+## Development Commands
 
 ```bash
-# Backend
-bundle exec rspec              # Run tests
-docker-compose up --build      # Start services
-docker-compose down -v         # Stop + remove volumes
+# Start everything
+docker-compose up --build        # Backend + Postgres + Redis + Sidekiq
+cd frontend && npm run dev       # Frontend dev server
 
-# Frontend
-cd frontend && npm run dev     # Dev server
-cd frontend && npm run build   # Production build
+# Run tests
+bundle exec rspec                # Backend tests
+
+# Stop
+docker-compose down -v           # Stop + remove volumes
 ```
 
-## Database Schema
+## How to Write Code
+
+### Backend (Ruby)
+
+**Adding features:**
+1. Routes go in `app.rb`
+2. Business logic goes in `lib/markr/` - use the existing patterns:
+   - `repository/` for database access (inherit from `BaseRepository`)
+   - `aggregator/` for stats calculations (register in `Registry`)
+   - `loader/` for data parsing (register in `LoaderFactory`)
+   - `middleware/` for cross-cutting concerns (Auth, CORS)
+   - `worker/` for async jobs
+3. Register new classes in `lib/markr.rb`
+
+**Key conventions:**
+- Repositories abstract all database access
+- Aggregates are pre-computed on import, stored as JSON
+- Duplicates (same student+test): keep highest `marks_obtained` AND highest `marks_available`
+- Reject entire document if any required field missing
+
+**Testing:**
+- Use RSpec, tests in `spec/`
+- Inject mock repositories via class setters
+
+### Frontend (React/TypeScript)
+
+**Adding features:**
+1. Pages go in `src/pages/`
+2. Add route in `src/App.tsx`
+3. Add API function in `src/services/api.ts`
+4. Add types in `src/types/index.ts`
+
+**Key conventions:**
+- Use Tailwind for styling
+- Use Zustand for state (`src/stores/`)
+- AI assistant panel in `src/components/AssistantPanel.tsx`
+- AI tools in `src/lib/tools/` (each tool in separate file)
+- Job tracking store in `src/stores/jobStore.ts` (persists to localStorage)
+- Layout has Jobs dropdown in right icon bar for tracking imports
+
+**Adding AI Assistant tools:**
+1. Create tool file in `src/lib/tools/myTool.ts`
+2. Register in `src/lib/tools/index.ts`
+3. See `SKILLS.md` for full guide
+
+## Architecture Quick Reference
 
 ```
-students (id, student_number, name)
-    ↓
-test_results (id, student_id FK, test_id, marks_available, marks_obtained)
-    ↓
-test_aggregates (test_id, data JSON)
+POST /import → Queue to Redis → Sidekiq Worker → Save to DB → Compute Aggregates → Mark Complete
+GET /jobs/:id → Check sidekiq-status for job state (queued, working, complete, failed)
+GET /tests   → Read pre-computed aggregates from DB
 ```
 
-## API Endpoints
+**Database:** students → test_results → test_aggregates (JSON)
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/import` | Import XML, returns job_id |
-| GET | `/jobs/:job_id` | Poll job status |
-| GET | `/tests` | List all tests |
-| GET | `/results/:test_id/aggregate` | Test statistics |
-| GET | `/tests/:test_id/students` | Students in test |
-| GET | `/students` | List all students |
-| GET | `/students/:num` | Student's results |
-| GET | `/students/:num/tests/:id` | Specific result |
-| GET | `/health` | Health check (no auth) |
+**Auth:** Basic auth `markr:secret` (except `/health`)
 
-## Frontend Routes
+## Extension Guide
 
-| Route | Page |
-|-------|------|
-| `/` | Dashboard |
-| `/tests` | Test list |
-| `/tests/:id` | Test detail |
-| `/tests/:id/students` | Students in test |
-| `/students` | Student list |
-| `/students/:num` | Student detail |
-| `/import` | Import XML |
-
-## Key Rules
-
-- Duplicates: keep highest score per student+test
-- Missing fields: reject entire document
-- Aggregates: pre-computed as JSON on import
-- Auth: Basic auth `markr:secret` (except /health)
-
-## Key Files
-
-| File | Purpose |
-|------|---------|
-| `app.rb` | HTTP routes |
-| `lib/markr/worker/import_worker.rb` | Async processing |
-| `lib/markr/repository/` | Database operations |
-| `db/migrations/001_create_test_results.rb` | Schema (students + test_results) |
-| `frontend/src/pages/` | React pages |
-| `frontend/src/components/ChatAgent.tsx` | AI assistant |
+See `SKILLS.md` for detailed guides on adding aggregators, loaders, API endpoints, frontend pages, and AI assistant tools.

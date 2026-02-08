@@ -1,21 +1,18 @@
 require 'sidekiq'
+require 'sidekiq-status'
 require 'sequel'
 require_relative '../../../config/sidekiq'
 require_relative '../loader/loader_factory'
 require_relative '../repository/test_result_repository'
 require_relative '../repository/aggregate_repository'
 require_relative '../report/aggregate_report'
-require_relative '../aggregator/mean'
-require_relative '../aggregator/stddev'
-require_relative '../aggregator/min'
-require_relative '../aggregator/max'
-require_relative '../aggregator/count'
-require_relative '../aggregator/percentile'
+require_relative '../aggregator/registry'
 
 module Markr
   module Worker
     class ImportWorker
       include Sidekiq::Job
+      include Sidekiq::Status::Worker
 
       sidekiq_options queue: 'imports', retry: 3
 
@@ -35,6 +32,9 @@ module Markr
         test_ids.each do |test_id|
           compute_aggregate(test_id)
         end
+
+        # Store test_ids in job status data
+        store test_ids: test_ids.to_a.join(',')
       end
 
       def self.repository
@@ -53,6 +53,14 @@ module Markr
         @aggregate_repository = repo
       end
 
+      def self.aggregator_registry
+        @aggregator_registry ||= Aggregator::Registry.default
+      end
+
+      def self.aggregator_registry=(registry)
+        @aggregator_registry = registry
+      end
+
       def self.database
         @database ||= Sequel.connect(ENV.fetch('DATABASE_URL', 'sqlite://db/markr_dev.db'))
       end
@@ -65,16 +73,9 @@ module Markr
 
         scores = results.map(&:percentage)
 
-        stats = Report::AggregateReport.new(scores)
-          .add(Aggregator::Mean.new)
-          .add(Aggregator::StdDev.new)
-          .add(Aggregator::Min.new)
-          .add(Aggregator::Max.new)
-          .add(Aggregator::Count.new)
-          .add(Aggregator::Percentile.new(25))
-          .add(Aggregator::Percentile.new(50))
-          .add(Aggregator::Percentile.new(75))
-          .build
+        report = Report::AggregateReport.new(scores)
+        self.class.aggregator_registry.build_all.each { |agg| report.add(agg) }
+        stats = report.build
 
         self.class.aggregate_repository.save(test_id, stats)
       end

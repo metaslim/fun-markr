@@ -7,6 +7,15 @@ module Markr
     class XmlLoader < Loadable
       CONTENT_TYPE = 'text/xml+markr'.freeze
 
+      # Quick syntax validation before queuing
+      # Raises InvalidDocumentError if XML is malformed
+      def validate(content)
+        Nokogiri::XML(content) { |config| config.strict }
+        true
+      rescue Nokogiri::XML::SyntaxError => e
+        raise InvalidDocumentError, "Invalid XML: #{e.message}"
+      end
+
       def parse(content)
         doc = Nokogiri::XML(content) { |config| config.strict.nonet }
         extract_results(doc)

@@ -21,8 +21,9 @@ export interface TestAggregate {
 
 export interface JobStatus {
   job_id: string;
-  status: 'queued' | 'processing' | 'completed' | 'failed' | 'dead';
+  status: 'queued' | 'processing' | 'completed' | 'failed' | 'dead' | 'working';
   error?: string;
+  test_ids?: string[];
 }
 
 export interface ChatMessage {

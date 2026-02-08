@@ -48,10 +48,7 @@ export function TestList() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">All Tests</h1>
-          <p className="text-gray-500 mt-1">{tests.length} test{tests.length !== 1 ? 's' : ''} available</p>
-        </div>
+        <h1 className="text-2xl font-bold text-gray-900">Tests</h1>
         <Link
           to="/import"
           className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-medium transition-colors"
@@ -66,18 +63,21 @@ export function TestList() {
             <Link
               key={test.test_id}
               to={`/tests/${test.test_id}`}
-              className="block p-6 bg-white border border-gray-200 rounded-2xl hover:shadow-lg hover:border-emerald-200 transition-all group"
+              className="flex flex-col p-6 bg-white border border-gray-200 rounded-2xl hover:shadow-lg hover:border-emerald-200 transition-all group"
             >
-              <div className="flex items-center justify-between mb-4">
-                <span className="text-lg font-semibold text-gray-900">Test {test.test_id}</span>
-                <span className="text-xs px-2 py-1 bg-gray-100 rounded-full text-gray-500">
-                  {test.count} students
+              {/* Header - fixed height */}
+              <div className="mb-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-lg font-semibold text-gray-900">Test {test.test_id}</span>
+                </div>
+                <span className="text-xs text-gray-500">
+                  {test.count.toLocaleString()} students
                 </span>
               </div>
 
               {/* Score gauge */}
               <div className="flex items-center gap-4 mb-4">
-                <div className="relative w-16 h-16">
+                <div className="relative w-16 h-16 flex-shrink-0">
                   <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
                     <circle
                       cx="50" cy="50" r="40"
@@ -124,8 +124,8 @@ export function TestList() {
                 </div>
               </div>
 
-              {/* Arrow indicator */}
-              <div className="mt-4 text-emerald-500 text-sm font-medium group-hover:translate-x-1 transition-transform">
+              {/* Arrow indicator - pushed to bottom */}
+              <div className="mt-auto pt-4 text-emerald-500 text-sm font-medium group-hover:translate-x-1 transition-transform">
                 View Details →
               </div>
             </Link>

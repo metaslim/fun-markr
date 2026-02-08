@@ -47,7 +47,21 @@ export function TestDetail() {
       <div className="max-w-md mx-auto text-center py-20">
         <div className="text-6xl mb-4">📭</div>
         <h2 className="text-xl font-semibold text-gray-900 mb-2">Test Not Found</h2>
-        <p className="text-gray-500">{error}</p>
+        <p className="text-gray-500 mb-6">{error}</p>
+        <div className="flex items-center justify-center gap-3">
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-medium transition-colors"
+          >
+            Try Again
+          </button>
+          <Link
+            to="/tests"
+            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-medium transition-colors"
+          >
+            View All Tests
+          </Link>
+        </div>
       </div>
     );
   }

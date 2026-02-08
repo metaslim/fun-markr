@@ -109,6 +109,37 @@ RSpec.describe Markr::Repository::TestResultRepository do
         expect(db[:test_results].first[:marks_obtained]).to eq(13)
       end
 
+      it 'keeps highest marks_available when updating to higher score' do
+        # Scenario: paper folded, some questions covered (available=18), but got higher score
+        higher_score_lower_available = Markr::Model::TestResult.new(
+          student_number: '002299',
+          test_id: '9863',
+          marks_available: 18,  # lower than original 20
+          marks_obtained: 15    # higher than original 13
+        )
+
+        repository.save(higher_score_lower_available)
+
+        expect(db[:test_results].count).to eq(1)
+        expect(db[:test_results].first[:marks_obtained]).to eq(15)   # highest obtained
+        expect(db[:test_results].first[:marks_available]).to eq(20)  # highest available
+      end
+
+      it 'updates marks_available if new one is higher' do
+        same_score_higher_available = Markr::Model::TestResult.new(
+          student_number: '002299',
+          test_id: '9863',
+          marks_available: 25,  # higher than original 20
+          marks_obtained: 13    # same as original
+        )
+
+        repository.save(same_score_higher_available)
+
+        expect(db[:test_results].count).to eq(1)
+        expect(db[:test_results].first[:marks_obtained]).to eq(13)
+        expect(db[:test_results].first[:marks_available]).to eq(25)  # updated to higher
+      end
+
       it 'does not create duplicate students' do
         same_student = Markr::Model::TestResult.new(
           student_number: '002299',

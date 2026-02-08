@@ -1,0 +1,15 @@
+# Dev mode: mount local code for hot reload (no rebuild needed)
+# Docker Compose automatically merges this with docker-compose.yml
+services:
+  app:
+    volumes:
+      - ./lib:/app/lib:ro
+      - ./app.rb:/app/app.rb:ro
+      - ./spec:/app/spec:ro
+      - ./config:/app/config:ro
+
+  worker:
+    volumes:
+      - ./lib:/app/lib:ro
+      - ./app.rb:/app/app.rb:ro
+      - ./config:/app/config:ro

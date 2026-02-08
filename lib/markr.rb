@@ -4,6 +4,7 @@ require_relative 'markr/model/test_result'
 # Loaders
 require_relative 'markr/loader/loadable'
 require_relative 'markr/loader/xml_loader'
+require_relative 'markr/loader/csv_loader'
 require_relative 'markr/loader/loader_factory'
 
 # Aggregators
@@ -14,11 +15,18 @@ require_relative 'markr/aggregator/min'
 require_relative 'markr/aggregator/max'
 require_relative 'markr/aggregator/count'
 require_relative 'markr/aggregator/percentile'
+require_relative 'markr/aggregator/registry'
+
+# Middleware
+require_relative 'markr/middleware/cors'
+require_relative 'markr/middleware/auth'
 
 # Reports
 require_relative 'markr/report/aggregate_report'
 
 # Repository
+require_relative 'markr/repository/base_repository'
+require_relative 'markr/repository/student_repository'
 require_relative 'markr/repository/test_result_repository'
 require_relative 'markr/repository/aggregate_repository'
 

@@ -42,56 +42,6 @@ interface ContextState {
   clearContext: () => void;
 }
 
-// App navigation and API knowledge for the AI
-const APP_KNOWLEDGE = `
-=== APP NAVIGATION ===
-
-FRONTEND ROUTES:
-- /                         - Dashboard with overview stats
-- /tests                    - List all tests
-- /tests/:testId            - Test details and statistics
-- /tests/:testId/students   - All students in a test (with scores)
-- /students                 - List all students
-- /students/:studentNumber  - Student profile with all test results
-- /import                   - Import new test results (XML upload)
-
-HOW TO NAVIGATE:
-- Use [[/path]] format to suggest navigation links to the user
-- Example: "You can view this at [[/tests/9863]]"
-
-=== BACKEND API ENDPOINTS ===
-
-Tests:
-- GET /tests - List all tests with aggregate stats
-- GET /results/:test_id/aggregate - Get test statistics
-- GET /tests/:test_id/students - List all students in a test
-
-Students:
-- GET /students - List all students
-- GET /students/:student_number - Get student's all test results
-- GET /students/:student_number/tests/:test_id - Get specific result
-
-System:
-- POST /import - Upload XML test results
-- GET /jobs/:job_id - Check import job status
-- GET /health - Health check
-
-=== DATA MODEL ===
-
-Students:
-- student_number: Unique student ID
-- name: Full name
-
-Test Results:
-- student_id: References student
-- test_id: Test identifier
-- marks_available/obtained: Score data
-- percentage: Calculated score
-
-Aggregate Stats (all percentages except count):
-- mean, min, max, stddev, p25, p50, p75, count
-
-`;
 
 export const useContextStore = create<ContextState>((set, get) => ({
   viewedTests: new Map(),
@@ -130,49 +80,38 @@ export const useContextStore = create<ContextState>((set, get) => ({
 
   getContextForAI: () => {
     const state = get();
-    const lines: string[] = [];
+    const lines: string[] = ['## CURRENT SESSION\n'];
 
-    // App knowledge first
-    lines.push(APP_KNOWLEDGE);
-
-    lines.push('=== USER SESSION DATA ===\n');
-
-    // Current page
+    // Current page and context
     if (state.currentPage) {
-      lines.push(`CURRENT PAGE: ${state.currentPage.title} (${state.currentPage.path})\n`);
+      lines.push(`**Current Page:** ${state.currentPage.title} → \`${state.currentPage.path}\`\n`);
+
+      // Extract test ID if viewing a test page
+      const testMatch = state.currentPage.path.match(/^\/tests\/(\d+)/);
+      if (testMatch) {
+        lines.push(`**Current Test:** ${testMatch[1]} (use this ID for student queries)\n`);
+      }
+
+      // Extract student number if viewing a student page
+      const studentMatch = state.currentPage.path.match(/^\/students\/([^/]+)$/);
+      if (studentMatch) {
+        lines.push(`**Current Student:** ${studentMatch[1]}\n`);
+      }
     }
 
-    // Available tests
+    // Tell LLM about available tests (IDs only, no data - force use of actions)
     if (state.availableTests.length > 0) {
-      lines.push('ALL AVAILABLE TESTS IN SYSTEM:');
-      state.availableTests.forEach((test) => {
-        lines.push(`  - Test ${test.test_id}: ${test.count} students, mean ${test.mean.toFixed(1)}%`);
-      });
-      lines.push('');
+      const testIds = state.availableTests.map(t => t.test_id).join(', ');
+      lines.push(`**Available Tests:** ${testIds}`);
+      lines.push('Use actions to get details.\n');
+    } else {
+      lines.push('**No tests imported yet.** User should go to /import to upload results.\n');
     }
 
-    // Tests viewed (with full details)
-    if (state.viewedTests.size > 0) {
-      lines.push('TESTS USER HAS VIEWED (FULL DETAILS):');
-      state.viewedTests.forEach((test) => {
-        const agg = test.aggregate;
-        lines.push(`\nTest ID: ${test.testId}`);
-        lines.push(`  - Students: ${agg.count}`);
-        lines.push(`  - Mean: ${agg.mean.toFixed(2)}%`);
-        lines.push(`  - Min: ${agg.min.toFixed(2)}%, Max: ${agg.max.toFixed(2)}%`);
-        lines.push(`  - Std Dev: ${agg.stddev.toFixed(2)}`);
-        lines.push(`  - Percentiles: P25=${agg.p25.toFixed(2)}%, P50=${agg.p50.toFixed(2)}%, P75=${agg.p75.toFixed(2)}%`);
-      });
-      lines.push('');
-    }
-
-    // Recent pages
+    // Recent pages - simplified
     if (state.pageHistory.length > 0) {
-      lines.push('USER NAVIGATION HISTORY:');
-      const recent = state.pageHistory.slice(-5);
-      recent.forEach((visit) => {
-        lines.push(`  - ${visit.title} (${visit.path})`);
-      });
+      const recent = state.pageHistory.slice(-3);
+      lines.push(`**Recent Pages:** ${recent.map(v => v.title).join(' → ')}`);
     }
 
     return lines.join('\n');
@@ -183,31 +122,33 @@ export const useContextStore = create<ContextState>((set, get) => ({
     const currentPath = state.currentPage?.path || '/';
     const questions: { text: string; query: string }[] = [];
 
-    // Home page suggestions
+    // Home page suggestions - generic, let agent ask which test
     if (currentPath === '/') {
       if (state.availableTests.length > 0) {
-        const bestTest = state.availableTests.reduce((a, b) => a.mean > b.mean ? a : b);
         questions.push(
-          { text: `View best performing test`, query: `Show me details for test ${bestTest.test_id}` },
-          { text: `Who are the top students?`, query: `Who are the top performing students?` },
-          { text: 'Compare all tests', query: 'Compare the performance across all tests' },
-          { text: 'View all students', query: 'Take me to the students list' },
+          { text: 'Show top students', query: 'Show top students' },
+          { text: 'Who needs help?', query: 'Which students are struggling?' },
+          { text: 'Class overview', query: 'Give me a class overview' },
+          { text: 'Find at-risk students', query: 'Find at-risk students' },
         );
       } else {
         questions.push(
-          { text: 'How do I import test results?', query: 'How do I import test results?' },
-          { text: 'What can this app do?', query: 'What features does this app have?' },
+          { text: 'Import my first results', query: 'How do I import test results?' },
+          { text: 'What can you help me with?', query: 'What can you help me with in this app?' },
         );
       }
     }
 
     // Tests list page
     else if (currentPath === '/tests') {
-      questions.push(
-        { text: 'Which test has the most students?', query: 'Which test has the most students?' },
-        { text: 'Which test needs attention?', query: 'Which test has the lowest average score?' },
-        { text: 'View all students', query: 'Take me to the students list' },
-      );
+      if (state.availableTests.length > 0) {
+        const randomTest = state.availableTests[Math.floor(Math.random() * state.availableTests.length)];
+        questions.push(
+          { text: `Dive into test ${randomTest.test_id}`, query: `Show me details for test ${randomTest.test_id}` },
+          { text: 'Find the hardest test', query: 'Which test has the lowest scores?' },
+          { text: 'Show top performers', query: 'List all students sorted by performance' },
+        );
+      }
     }
 
     // Test detail page suggestions
@@ -216,39 +157,39 @@ export const useContextStore = create<ContextState>((set, get) => ({
       const testData = state.viewedTests.get(testId);
 
       questions.push(
-        { text: 'Who are the top students?', query: `Who are the top 5 students in test ${testId}?` },
-        { text: 'Who needs help?', query: `Which students scored lowest on test ${testId}?` },
-        { text: 'View all students in test', query: `Show me all students in test ${testId}` },
+        { text: 'Show me top 5 students', query: `Who are the top 5 students in test ${testId}?` },
+        { text: 'Who scored below 50%?', query: `Which students scored below 50% on test ${testId}?` },
       );
 
-      if (testData) {
-        questions.push(
-          { text: 'Is this a good result?', query: `Is ${testData.aggregate.mean.toFixed(1)}% average a good score?` },
-        );
+      if (testData && testData.aggregate.stddev > 15) {
+        questions.push({ text: 'Why such varied scores?', query: `Why is there such a big spread in scores for test ${testId}?` });
       }
 
       if (state.availableTests.length > 1) {
-        questions.push({ text: 'Compare with other tests', query: `How does test ${testId} compare to other tests?` });
+        questions.push({ text: 'Compare to other tests', query: `How does test ${testId} compare to other tests?` });
       }
+
+      questions.push({ text: 'View all students', query: `Show all students who took test ${testId}` });
     }
 
     // Test students page
     else if (currentPath.match(/^\/tests\/\d+\/students$/)) {
       const testId = currentPath.split('/')[2];
       questions.push(
-        { text: 'Who scored highest?', query: `Who got the highest score on test ${testId}?` },
-        { text: 'Who needs help?', query: `Which students failed test ${testId}?` },
-        { text: 'What\'s the grade distribution?', query: `How are scores distributed on test ${testId}?` },
-        { text: 'Back to test details', query: `Show me the aggregate stats for test ${testId}` },
+        { text: 'Who got 100%?', query: `Did anyone get a perfect score on test ${testId}?` },
+        { text: 'Show failing students', query: `Which students failed test ${testId}?` },
+        { text: 'What\'s the median score?', query: `What's the median score for test ${testId}?` },
+        { text: 'Back to test stats', query: `Show me the statistics for test ${testId}` },
       );
     }
 
     // Students list page
     else if (currentPath === '/students') {
       questions.push(
-        { text: 'Who are the top students?', query: 'Who are the best performing students overall?' },
-        { text: 'How many students total?', query: 'How many students are in the system?' },
-        { text: 'View all tests', query: 'Take me to the tests list' },
+        { text: 'Find top performers', query: 'Who has the highest average across all tests?' },
+        { text: 'Who needs support?', query: 'Which students are consistently scoring below average?' },
+        { text: 'How many students?', query: 'How many students are in the system?' },
+        { text: 'View all tests', query: 'Show me the tests list' },
       );
     }
 
@@ -256,20 +197,19 @@ export const useContextStore = create<ContextState>((set, get) => ({
     else if (currentPath.match(/^\/students\/[^/]+$/)) {
       const studentNum = currentPath.split('/')[2];
       questions.push(
-        { text: 'How did they do overall?', query: `What is student ${studentNum}'s overall performance?` },
-        { text: 'Which test was best?', query: `Which test did student ${studentNum} perform best on?` },
-        { text: 'Which test was worst?', query: `Which test did student ${studentNum} struggle with?` },
-        { text: 'Compare to class average', query: `How does student ${studentNum} compare to the class average?` },
+        { text: 'Overall performance?', query: `How is student ${studentNum} doing overall?` },
+        { text: 'Best test result?', query: `What was student ${studentNum}'s best test?` },
+        { text: 'Areas to improve?', query: `Which tests should student ${studentNum} focus on improving?` },
+        { text: 'Compare to average', query: `How does student ${studentNum} compare to the class average?` },
       );
     }
 
     // Import page suggestions
     else if (currentPath === '/import') {
       questions.push(
-        { text: 'What XML format is needed?', query: 'What is the correct XML format for importing?' },
-        { text: 'Show me an example', query: 'Give me an example XML for test results' },
-        { text: 'What happens after import?', query: 'What happens after I import results?' },
-        { text: 'View existing tests', query: 'Take me to the tests list' },
+        { text: 'What format do I need?', query: 'What XML format should I use for importing?' },
+        { text: 'Show example XML', query: 'Give me an example XML file' },
+        { text: 'See existing data', query: 'Show me the tests I already have' },
       );
     }
 

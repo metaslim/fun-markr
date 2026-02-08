@@ -1,11 +1,13 @@
 require_relative 'loadable'
 require_relative 'xml_loader'
+require_relative 'csv_loader'
 
 module Markr
   module Loader
     class LoaderFactory
       LOADERS = {
-        'text/xml+markr' => XmlLoader
+        'text/xml+markr' => XmlLoader,
+        'text/csv+markr' => CsvLoader
       }.freeze
 
       def self.for_content_type(content_type)

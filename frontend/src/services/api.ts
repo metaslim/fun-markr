@@ -27,17 +27,21 @@ export async function getJobStatus(jobId: string): Promise<JobStatus> {
   return response.json();
 }
 
-export async function importResults(xmlContent: string): Promise<JobStatus> {
+export type ImportFormat = 'xml' | 'csv';
+
+export async function importResults(content: string, format: ImportFormat = 'xml'): Promise<JobStatus> {
+  const contentType = format === 'csv' ? 'text/csv+markr' : 'text/xml+markr';
   const response = await fetch(`${API_BASE}/import`, {
     method: 'POST',
     headers: {
       'Authorization': `Basic ${AUTH}`,
-      'Content-Type': 'text/xml+markr',
+      'Content-Type': contentType,
     },
-    body: xmlContent,
+    body: content,
   });
   if (!response.ok) {
-    throw new Error(`Failed to import: ${response.statusText}`);
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || `Failed to import: ${response.statusText}`);
   }
   return response.json();
 }

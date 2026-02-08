@@ -18,7 +18,7 @@ echo ""
 echo "2. Import Sample Data"
 response=$(curl -s -u "$USERNAME:$PASSWORD" -X POST "$BASE_URL/import" \
   -H "Content-Type: text/xml+markr" \
-  -d @data/sample_results.xml)
+  -d @data/9863/sample_results.xml)
 echo "$response" | jq .
 
 job_id=$(echo "$response" | jq -r '.job_id')

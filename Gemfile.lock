@@ -3,7 +3,10 @@ GEM
   specs:
     base64 (0.3.0)
     bigdecimal (4.0.1)
+    chronic_duration (0.10.6)
+      numerizer (~> 0.1.1)
     connection_pool (3.0.2)
+    csv (3.3.5)
     diff-lcs (1.6.2)
     json (2.18.1)
     logger (1.7.0)
@@ -26,6 +29,7 @@ GEM
       racc (~> 1.4)
     nokogiri (1.19.0-x86_64-linux-musl)
       racc (~> 1.4)
+    numerizer (0.1.1)
     pg (1.6.3)
     pg (1.6.3-aarch64-linux)
     pg (1.6.3-aarch64-linux-musl)
@@ -74,6 +78,11 @@ GEM
       logger (>= 1.7.0)
       rack (>= 3.2.0)
       redis-client (>= 0.26.0)
+    sidekiq-status (4.0.0)
+      base64
+      chronic_duration
+      logger
+      sidekiq (>= 7, < 9)
     sinatra (4.2.1)
       logger (>= 1.6.0)
       mustermann (~> 3.0)
@@ -104,6 +113,7 @@ PLATFORMS
   x86_64-linux-musl
 
 DEPENDENCIES
+  csv
   nokogiri
   pg
   puma
@@ -113,6 +123,7 @@ DEPENDENCIES
   rspec
   sequel
   sidekiq
+  sidekiq-status
   sinatra
   sqlite3
 

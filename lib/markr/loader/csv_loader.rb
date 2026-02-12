@@ -8,8 +8,6 @@ module Markr
       CONTENT_TYPE = 'text/csv+markr'.freeze
       REQUIRED_HEADERS = %w[student_number test_id marks_available marks_obtained].freeze
 
-      # Quick syntax validation before queuing
-      # Raises InvalidDocumentError if CSV is malformed or missing required headers
       def validate(content)
         rows = CSV.parse(content, headers: true)
         validate_headers!(rows.headers)

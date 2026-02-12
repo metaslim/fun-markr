@@ -25,7 +25,11 @@ export const useAssistantStore = create<AssistantState>((set, get) => ({
   isModelLoading: false,
   loadingStatus: '',
   loadingProgress: 0,
-  open: () => set({ isOpen: true }),
+  open: () => {
+    set({ isOpen: true });
+    // Lazy-load model on first open instead of on page load
+    get().preloadModel();
+  },
   close: () => set({ isOpen: false }),
   toggle: () => set((state) => ({ isOpen: !state.isOpen })),
   preloadModel: async () => {

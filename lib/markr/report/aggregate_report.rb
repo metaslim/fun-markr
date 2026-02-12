@@ -2,7 +2,7 @@ module Markr
   module Report
     class AggregateReport
       def initialize(scores)
-        @scores = scores
+        @scores = scores.sort  # Sort once, reused by all aggregators (e.g. Percentile)
         @aggregators = []
       end
 

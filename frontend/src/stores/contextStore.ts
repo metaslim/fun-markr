@@ -57,6 +57,13 @@ export const useContextStore = create<ContextState>((set, get) => ({
         aggregate,
         viewedAt: new Date(),
       });
+      // Cap at 50 entries, remove oldest
+      if (newMap.size > 50) {
+        const oldest = [...newMap.entries()].sort(
+          (a, b) => a[1].viewedAt.getTime() - b[1].viewedAt.getTime()
+        )[0];
+        newMap.delete(oldest[0]);
+      }
       return { viewedTests: newMap };
     });
   },
@@ -64,7 +71,7 @@ export const useContextStore = create<ContextState>((set, get) => ({
   addPageVisit: (path: string, title: string) => {
     set((state) => ({
       pageHistory: [
-        ...state.pageHistory,
+        ...state.pageHistory.slice(-49),  // Keep last 50
         { path, title, visitedAt: new Date() },
       ],
     }));

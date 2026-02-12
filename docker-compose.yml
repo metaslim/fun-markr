@@ -18,10 +18,12 @@ services:
 
   worker:
     build: .
-    command: bundle exec sidekiq -r ./lib/markr.rb -q imports
+    command: bundle exec sidekiq -r ./lib/markr.rb -q imports -c 10
     environment:
       - DATABASE_URL=postgres://markr:markr@db:5432/markr
       - REDIS_URL=redis://redis:6379/0
+      - SIDEKIQ_CONCURRENCY=10
+      - DB_POOL_SIZE=12
     depends_on:
       db:
         condition: service_healthy

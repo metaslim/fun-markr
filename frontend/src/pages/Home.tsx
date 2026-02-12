@@ -9,12 +9,14 @@ export function Home() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let cancelled = false;
     Promise.all([
-      listTests().then(res => setTests(res.tests)),
-      listStudents().then(res => setStudentCount(res.count))
+      listTests().then(res => { if (!cancelled) setTests(res.tests); }),
+      listStudents().then(res => { if (!cancelled) setStudentCount(res.count); })
     ])
       .catch(() => {})
-      .finally(() => setLoading(false));
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, []);
 
   const totalTests = tests.length;

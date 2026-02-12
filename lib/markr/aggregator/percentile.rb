@@ -13,12 +13,12 @@ module Markr
 
       def calculate(scores)
         return 0.0 if scores.empty?
-        sorted = scores.sort
-        return sorted.first if sorted.size == 1
+        # Scores are pre-sorted by AggregateReport
+        return scores.first if scores.size == 1
 
-        rank = (@percentile / 100.0) * (sorted.size - 1)
-        lower = sorted[rank.floor]
-        upper = sorted[rank.ceil]
+        rank = (@percentile / 100.0) * (scores.size - 1)
+        lower = scores[rank.floor]
+        upper = scores[rank.ceil]
         (lower + (upper - lower) * (rank - rank.floor)).round(2)
       end
     end

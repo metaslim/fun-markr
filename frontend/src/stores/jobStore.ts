@@ -30,7 +30,8 @@ interface JobStore {
   stopPolling: () => void;
 }
 
-let pollingInterval: ReturnType<typeof setInterval> | null = null;
+let pollingTimeout: ReturnType<typeof setTimeout> | null = null;
+let pollCount = 0;
 
 export const useJobStore = create<JobStore>()(
   persist(
@@ -93,9 +94,10 @@ export const useJobStore = create<JobStore>()(
       },
 
       startPolling: () => {
-        if (pollingInterval) return;
+        if (pollingTimeout) return;
 
         set({ isPolling: true });
+        pollCount = 0;
 
         const poll = async () => {
           const { jobs, updateJob, stopPolling } = get();
@@ -108,39 +110,51 @@ export const useJobStore = create<JobStore>()(
             return;
           }
 
-          for (const job of activeJobs) {
-            try {
-              const result = await getJobStatus(job.id);
+          // Poll all jobs in parallel instead of sequentially
+          await Promise.allSettled(
+            activeJobs.map(async (job) => {
+              try {
+                const result = await getJobStatus(job.id);
 
-              if (result.status === 'completed') {
-                updateJob(job.id, {
-                  status: 'completed',
-                  testIds: result.test_ids || [],
-                });
-              } else if (result.status === 'failed' || result.status === 'dead') {
-                updateJob(job.id, {
-                  status: 'failed',
-                  error: result.error || 'Job failed',
-                });
-              } else if (result.status === 'processing' || result.status === 'working') {
-                updateJob(job.id, { status: 'processing' });
+                if (result.status === 'completed') {
+                  updateJob(job.id, {
+                    status: 'completed',
+                    testIds: result.test_ids || [],
+                  });
+                } else if (result.status === 'failed' || result.status === 'dead') {
+                  updateJob(job.id, {
+                    status: 'failed',
+                    error: result.error || 'Job failed',
+                  });
+                } else if (result.status === 'processing' || result.status === 'working') {
+                  updateJob(job.id, { status: 'processing' });
+                }
+              } catch (err) {
+                console.error('Failed to poll job status:', err);
               }
-            } catch (err) {
-              console.error('Failed to poll job status:', err);
-            }
+            })
+          );
+
+          // Schedule next poll with exponential backoff (2s -> 3s -> 4.5s, cap at 10s)
+          pollCount++;
+          const interval = Math.min(2000 * Math.pow(1.5, Math.floor(pollCount / 3)), 10000);
+          if (get().activeJobs().length > 0) {
+            pollingTimeout = setTimeout(poll, interval);
+          } else {
+            get().stopPolling();
           }
         };
 
-        // Poll immediately, then every 2 seconds
+        // Poll immediately, then schedule with backoff
         poll();
-        pollingInterval = setInterval(poll, 2000);
       },
 
       stopPolling: () => {
-        if (pollingInterval) {
-          clearInterval(pollingInterval);
-          pollingInterval = null;
+        if (pollingTimeout) {
+          clearTimeout(pollingTimeout);
+          pollingTimeout = null;
         }
+        pollCount = 0;
         set({ isPolling: false });
       },
     }),

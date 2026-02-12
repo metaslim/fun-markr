@@ -7,10 +7,11 @@ module Markr
     class XmlLoader < Loadable
       CONTENT_TYPE = 'text/xml+markr'.freeze
 
-      # Quick syntax validation before queuing
-      # Raises InvalidDocumentError if XML is malformed
+      # Lightweight syntax validation using SAX (no DOM tree built)
       def validate(content)
-        Nokogiri::XML(content) { |config| config.strict }
+        handler = StrictSaxHandler.new
+        parser = Nokogiri::XML::SAX::Parser.new(handler)
+        parser.parse(content)
         true
       rescue Nokogiri::XML::SyntaxError => e
         raise InvalidDocumentError, "Invalid XML: #{e.message}"
@@ -26,6 +27,13 @@ module Markr
       end
 
       private
+
+      # SAX handler that raises on any XML error
+      class StrictSaxHandler < Nokogiri::XML::SAX::Document
+        def error(string)
+          raise Nokogiri::XML::SyntaxError, string
+        end
+      end
 
       def extract_results(doc)
         doc.xpath('//mcq-test-result').map do |node|

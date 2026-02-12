@@ -12,23 +12,44 @@ module Markr
 
       def save(test_result)
         with_error_handling do
-          # First, find or create the student
           student = @student_repo.find_or_create(
             student_number: test_result.student_number,
             name: test_result.student_name
           )
+          upsert_result(student[:id], test_result)
+        end
+      end
 
-          existing = @db[:test_results].where(
-            student_id: student[:id],
-            test_id: test_result.test_id
-          ).first
+      # Bulk save results: upserts students and test results in a single transaction
+      def bulk_save(results)
+        with_error_handling do
+          @db.transaction do
+            # Batch upsert unique students
+            unique_students = results.each_with_object({}) do |r, hash|
+              hash[r.student_number] ||= r.student_name
+            end
+            @student_repo.bulk_upsert(unique_students)
 
-          if existing
-            update_if_higher_score(existing, test_result)
-          else
-            insert_new(student[:id], test_result)
+            # Fetch student ID mapping in one query
+            student_map = @student_repo.find_ids(unique_students.keys)
+
+            # Batch upsert test results
+            results.each do |result|
+              student_id = student_map[result.student_number]
+              upsert_result(student_id, result)
+            end
           end
         end
+      end
+
+      # Efficiently fetch only percentage scores for aggregation (no JOIN)
+      def scores_for_test(test_id)
+        @db[:test_results]
+          .where(test_id: test_id)
+          .exclude(marks_available: 0)
+          .select_map(
+            Sequel.lit("ROUND(CAST(marks_obtained AS FLOAT) / marks_available * 100, 2)")
+          )
       end
 
       def find_by_test_id(test_id)
@@ -78,6 +99,33 @@ module Markr
 
       private
 
+      def upsert_result(student_id, test_result)
+        obtained_expr = Sequel.lit(
+          "CASE WHEN excluded.marks_obtained > test_results.marks_obtained " \
+          "THEN excluded.marks_obtained ELSE test_results.marks_obtained END"
+        )
+        available_expr = Sequel.lit(
+          "CASE WHEN excluded.marks_available > test_results.marks_available " \
+          "THEN excluded.marks_available ELSE test_results.marks_available END"
+        )
+        @db[:test_results].insert_conflict(
+          target: [:student_id, :test_id],
+          update: {
+            marks_obtained: obtained_expr,
+            marks_available: available_expr,
+            updated_at: Time.now
+          }
+        ).insert(
+          student_id: student_id,
+          test_id: test_result.test_id,
+          marks_available: test_result.marks_available,
+          marks_obtained: test_result.marks_obtained,
+          scanned_on: test_result.scanned_on,
+          created_at: Time.now,
+          updated_at: Time.now
+        )
+      end
+
       def row_to_hash(row, student = nil)
         model = row_to_model_with_student(row, student)
         {
@@ -99,34 +147,6 @@ module Markr
           marks_available: row[:marks_available],
           marks_obtained: row[:marks_obtained],
           scanned_on: row[:scanned_on]
-        )
-      end
-
-      def update_if_higher_score(existing, test_result)
-        new_obtained = [test_result.marks_obtained, existing[:marks_obtained]].max
-        new_available = [test_result.marks_available, existing[:marks_available]].max
-
-        # Only update if something changed
-        return if new_obtained == existing[:marks_obtained] && new_available == existing[:marks_available]
-
-        @db[:test_results]
-          .where(id: existing[:id])
-          .update(
-            marks_obtained: new_obtained,
-            marks_available: new_available,
-            updated_at: Time.now
-          )
-      end
-
-      def insert_new(student_id, test_result)
-        @db[:test_results].insert(
-          student_id: student_id,
-          test_id: test_result.test_id,
-          marks_available: test_result.marks_available,
-          marks_obtained: test_result.marks_obtained,
-          scanned_on: test_result.scanned_on,
-          created_at: Time.now,
-          updated_at: Time.now
         )
       end
 

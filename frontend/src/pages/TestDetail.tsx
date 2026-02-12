@@ -15,6 +15,7 @@ export function TestDetail() {
 
   useEffect(() => {
     if (!testId) return;
+    let cancelled = false;
 
     addPageVisit(`/tests/${testId}`, `Test ${testId}`);
 
@@ -23,15 +24,18 @@ export function TestDetail() {
 
     getAggregate(testId)
       .then((data) => {
-        setAggregate(data);
-        addViewedTest(testId, data);
+        if (!cancelled) {
+          setAggregate(data);
+          addViewedTest(testId, data);
+        }
       })
       .catch((err) => {
-        setError(err.message);
+        if (!cancelled) setError(err.message);
       })
       .finally(() => {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       });
+    return () => { cancelled = true; };
   }, [testId, addPageVisit, addViewedTest]);
 
   if (loading) {

@@ -1,6 +1,7 @@
 require 'sidekiq'
 require 'sidekiq-status'
 require 'sequel'
+require 'zlib'
 require_relative '../../../config/sidekiq'
 require_relative '../loader/loader_factory'
 require_relative '../repository/test_result_repository'
@@ -14,21 +15,20 @@ module Markr
       include Sidekiq::Job
       include Sidekiq::Status::Worker
 
-      sidekiq_options queue: 'imports', retry: 3
+      sidekiq_options queue: 'imports', retry: 5
 
       def perform(content, content_type)
         loader = Loader::LoaderFactory.for_content_type(content_type)
         results = loader.parse(content)
 
-        # Track which tests need aggregate updates
+        # Collect affected test IDs
         test_ids = Set.new
+        results.each { |r| test_ids.add(r.test_id) }
 
-        results.each do |result|
-          self.class.repository.save(result)
-          test_ids.add(result.test_id)
-        end
+        # Bulk save all results in a single transaction
+        self.class.repository.bulk_save(results)
 
-        # Recompute aggregates for affected tests
+        # Recompute aggregates for affected tests (with advisory lock)
         test_ids.each do |test_id|
           compute_aggregate(test_id)
         end
@@ -62,22 +62,36 @@ module Markr
       end
 
       def self.database
-        @database ||= Sequel.connect(ENV.fetch('DATABASE_URL', 'sqlite://db/markr_dev.db'))
+        @database ||= Sequel.connect(
+          ENV.fetch('DATABASE_URL', 'sqlite://db/markr_dev.db'),
+          max_connections: Integer(ENV.fetch('DB_POOL_SIZE', '10'))
+        )
+      end
+
+      def self.database=(db)
+        @database = db
       end
 
       private
 
       def compute_aggregate(test_id)
-        results = self.class.repository.find_by_test_id(test_id)
-        return if results.empty?
+        self.class.database.transaction do
+          # Advisory lock to prevent concurrent aggregate computation for same test_id
+          if self.class.database.database_type == :postgres
+            lock_key = Zlib.crc32(test_id.to_s) & 0x7FFFFFFF
+            self.class.database.run("SELECT pg_advisory_xact_lock(#{lock_key})")
+          end
 
-        scores = results.map(&:percentage)
+          # Fetch only scores (no JOIN, no object creation)
+          scores = self.class.repository.scores_for_test(test_id)
+          return if scores.empty?
 
-        report = Report::AggregateReport.new(scores)
-        self.class.aggregator_registry.build_all.each { |agg| report.add(agg) }
-        stats = report.build
+          report = Report::AggregateReport.new(scores)
+          self.class.aggregator_registry.build_all.each { |agg| report.add(agg) }
+          stats = report.build
 
-        self.class.aggregate_repository.save(test_id, stats)
+          self.class.aggregate_repository.save(test_id, stats)
+        end
       end
     end
   end

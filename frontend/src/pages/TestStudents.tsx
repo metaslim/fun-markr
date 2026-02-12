@@ -21,6 +21,7 @@ export function TestStudents() {
 
   useEffect(() => {
     if (!testId) return;
+    let cancelled = false;
 
     addPageVisit(`/tests/${testId}/students`, `Test ${testId} Students`);
 
@@ -29,15 +30,18 @@ export function TestStudents() {
       getAggregate(testId),
     ])
       .then(([studentsRes, aggRes]) => {
-        setStudents(studentsRes.students);
-        setAggregate(aggRes);
+        if (!cancelled) {
+          setStudents(studentsRes.students);
+          setAggregate(aggRes);
+        }
       })
       .catch((err) => {
-        setError(err.message);
+        if (!cancelled) setError(err.message);
       })
       .finally(() => {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       });
+    return () => { cancelled = true; };
   }, [testId, addPageVisit]);
 
   // Pre-compute rank lookup map (only once when data loads)

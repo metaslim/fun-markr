@@ -184,9 +184,16 @@ When importing, if the same student+test combination already exists:
 - Keep the **highest** `marks_obtained`
 - Keep the **highest** `marks_available`
 
-This handles the scenario where a paper gets folded and some questions are covered during scanning, resulting in a lower `marks_available`. The system keeps the best of both values.
+This is handled via upsert (`insert_conflict`) with CASE expressions:
+```ruby
+# test_result_repository.rb → upsert_result
+obtained_expr = Sequel.lit(
+  "CASE WHEN excluded.marks_obtained > test_results.marks_obtained " \
+  "THEN excluded.marks_obtained ELSE test_results.marks_obtained END"
+)
+```
 
-See `lib/markr/repository/test_result_repository.rb` → `update_if_higher_score` method.
+This handles the scenario where a paper gets folded and some questions are covered during scanning, resulting in a lower `marks_available`. The system keeps the best of both values.
 
 ## Key Files
 
@@ -318,10 +325,147 @@ interface ActionResult {
 | `getEasiestTest` | Highest average test |
 | `compareStudentToClass:NUM` | Student vs class average |
 
+## Performance Patterns
+
+### Upsert Pattern (Avoiding Race Conditions)
+
+**Problem:** `SELECT` then `INSERT/UPDATE` races under concurrent Sidekiq workers.
+
+**Solution:** Use `insert_conflict` (PostgreSQL `ON CONFLICT`):
+
+```ruby
+# Student upsert
+@db[:students].insert_conflict(
+  target: :student_number,
+  update: { name: name_expr, updated_at: Time.now }
+).insert(student_number: num, name: name, created_at: Time.now, updated_at: Time.now)
+
+# Test result upsert (keep highest marks)
+@db[:test_results].insert_conflict(
+  target: [:student_id, :test_id],
+  update: { marks_obtained: max_expr, marks_available: max_expr, updated_at: Time.now }
+).insert(...)
+```
+
+**Requires:** Unique indexes on the conflict target columns. See `db/migrations/`.
+
+### Bulk Operations (Avoiding N+1)
+
+**Problem:** Looping `repository.save(result)` per-result causes N+1 queries.
+
+**Solution:** `bulk_save` wraps everything in one transaction:
+
+```ruby
+def bulk_save(results)
+  @db.transaction do
+    # 1. Batch upsert unique students
+    @student_repo.bulk_upsert(unique_students)
+    # 2. Fetch all student IDs in one query
+    student_map = @student_repo.find_ids(student_numbers)
+    # 3. Upsert each result (still individual, but in same transaction = 1 round trip)
+    results.each { |r| upsert_result(student_map[r.student_number], r) }
+  end
+end
+```
+
+### Advisory Locks (Preventing Aggregate Races)
+
+**Problem:** Two workers importing results for the same test compute aggregates simultaneously.
+
+**Solution:** PostgreSQL advisory lock scoped to test_id:
+
+```ruby
+def compute_aggregate(test_id)
+  database.transaction do
+    if database.database_type == :postgres
+      lock_key = Zlib.crc32(test_id.to_s) & 0x7FFFFFFF
+      database.run("SELECT pg_advisory_xact_lock(#{lock_key})")
+    end
+    # ... compute and save aggregate
+  end
+end
+```
+
+Lock is automatically released when the transaction commits/rolls back.
+
+### Efficient Score Fetching
+
+**Problem:** `find_by_test_id` JOINs and builds full TestResult objects just to get percentages.
+
+**Solution:** Compute percentages in SQL:
+
+```ruby
+def scores_for_test(test_id)
+  @db[:test_results].where(test_id: test_id).exclude(marks_available: 0)
+    .select_map(Sequel.lit("ROUND(CAST(marks_obtained AS FLOAT) / marks_available * 100, 2)"))
+end
+```
+
+### SAX Validation (Avoiding Double DOM Parse)
+
+**Problem:** XML validated by building DOM, then parsed again by building DOM = 2x memory + CPU.
+
+**Solution:** Validate with SAX (streaming, no tree):
+
+```ruby
+class StrictSaxHandler < Nokogiri::XML::SAX::Document
+  def error(string)
+    raise Nokogiri::XML::SyntaxError, string
+  end
+end
+
+def validate(content)
+  parser = Nokogiri::XML::SAX::Parser.new(StrictSaxHandler.new)
+  parser.parse(content)
+  true
+end
+```
+
+### Connection Pool Sizing
+
+Match Sequel `max_connections` to Sidekiq concurrency:
+
+```ruby
+Sequel.connect(url, max_connections: Integer(ENV.fetch('DB_POOL_SIZE', '10')))
+```
+
+### Frontend Performance
+
+| Pattern | Where | Why |
+|---------|-------|-----|
+| Lazy LLM load | `assistantStore.ts` | Don't download 4GB model on page mount |
+| Exponential backoff | `jobStore.ts` | `setTimeout` with increasing delay, not `setInterval` |
+| Parallel polling | `jobStore.ts` | `Promise.allSettled` instead of sequential loops |
+| Cancelled flag | All pages | `useEffect` cleanup sets `cancelled = true` to prevent stale setState |
+| Capped collections | `contextStore.ts` | `pageHistory` and `viewedTests` capped at 50 entries |
+
+## Common Pitfalls
+
+| Pitfall | Symptom | Fix |
+|---------|---------|-----|
+| SELECT-then-INSERT | Duplicate key errors under load | Use `insert_conflict` (upsert) |
+| N+1 in import loop | Slow imports, many queries | Use `bulk_save` with single transaction |
+| No advisory lock | Incorrect aggregates | `pg_advisory_xact_lock` per test_id |
+| Double DOM parse | 2x memory for large XML | SAX validation + DOM parse |
+| Unbounded lists | Slow API responses | Paginate with `?limit=&offset=` |
+| Fixed-interval polling | Hammers server | Exponential backoff with `setTimeout` |
+| No unmount cleanup | React warnings, stale state | `cancelled` flag in `useEffect` |
+| Preloading heavy resources | Slow initial page load | Lazy-load on first use |
+| Unbounded Zustand stores | Memory leak in long sessions | Cap collection sizes |
+| Pool < concurrency | Connection wait timeouts | `max_connections >= SIDEKIQ_CONCURRENCY` |
+
 ## Testing
 
 ```bash
-bundle exec rspec                    # All tests
+bundle exec rspec                    # All tests (needs Redis for worker/integration specs)
 bundle exec rspec spec/aggregator/   # Specific folder
+bundle exec rspec spec/loader/ spec/aggregator/ spec/report/  # Tests that don't need Redis
 bundle exec rspec --format doc       # Verbose
 ```
+
+**Note:** 26 specs require Redis (worker specs with `Sidekiq::Testing.inline!` and integration specs). Run `docker-compose up redis` or install Redis locally to pass those.
+
+**Mocking the worker:** When testing ImportWorker, mock:
+- `repository` (with `bulk_save`, `scores_for_test`)
+- `aggregate_repository` (with `save`)
+- `database` (with `transaction` yielding, `database_type` returning `:sqlite`)

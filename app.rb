@@ -28,7 +28,7 @@ class App < Sinatra::Base
   set :protection, except: [:http_origin]
 
   def self.database
-    @database ||= Sequel.connect(settings.database_url)
+    @database ||= Sequel.connect(settings.database_url, max_connections: 10)
   end
 
   def self.run_migrations!
@@ -60,6 +60,7 @@ class App < Sinatra::Base
       unique [:student_id, :test_id]
       index :test_id
       index :student_id
+      index [:test_id, :marks_obtained]
     end
     @database.create_table?(:test_aggregates) do
       primary_key :id
@@ -69,6 +70,7 @@ class App < Sinatra::Base
       DateTime :updated_at
 
       index :test_id
+      index :updated_at
     end
     @repository = nil
     @student_repository = nil
@@ -157,16 +159,22 @@ class App < Sinatra::Base
     cached.to_json
   end
 
-  # List all tests with aggregates
+  # List all tests with aggregates (paginated)
   get '/tests' do
-    tests = self.class.aggregate_repository.list_all
-    { tests: tests, count: tests.length }.to_json
+    limit = (params[:limit] || 50).to_i.clamp(1, 200)
+    offset = (params[:offset] || 0).to_i
+    tests = self.class.aggregate_repository.list_all(limit: limit, offset: offset)
+    total = self.class.aggregate_repository.count
+    { tests: tests, count: tests.length, total: total, limit: limit, offset: offset }.to_json
   end
 
-  # List all students
+  # List all students (paginated)
   get '/students' do
-    students = self.class.student_repository.all
-    { students: students, count: students.length }.to_json
+    limit = (params[:limit] || 50).to_i.clamp(1, 200)
+    offset = (params[:offset] || 0).to_i
+    students = self.class.student_repository.all(limit: limit, offset: offset)
+    total = self.class.student_repository.count
+    { students: students, count: students.length, total: total, limit: limit, offset: offset }.to_json
   end
 
   # Get all results for a student

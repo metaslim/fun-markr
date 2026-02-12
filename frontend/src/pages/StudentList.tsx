@@ -38,18 +38,20 @@ export function StudentList() {
   const addPageVisit = useContextStore((state) => state.addPageVisit);
 
   useEffect(() => {
+    let cancelled = false;
     addPageVisit('/students', 'All Students');
 
     listStudents()
       .then((res) => {
-        setStudents(res.students);
+        if (!cancelled) setStudents(res.students);
       })
       .catch((err) => {
-        setError(err.message);
+        if (!cancelled) setError(err.message);
       })
       .finally(() => {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       });
+    return () => { cancelled = true; };
   }, [addPageVisit]);
 
   const filteredStudents = students.filter((student) => {

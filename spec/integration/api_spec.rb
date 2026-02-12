@@ -1,6 +1,7 @@
 require 'spec_helper'
 require 'rack/test'
 require 'sidekiq/testing'
+require 'sidekiq-status/testing/inline'
 require_relative '../../app'
 
 RSpec.describe 'API' do
@@ -39,20 +40,21 @@ RSpec.describe 'API' do
   before(:each) do
     # Reset database before each test
     App.reset_database!
-    # Share the app's repositories with the worker for inline testing
+    # Share the app's database and repositories with the worker for inline testing
+    Markr::Worker::ImportWorker.database = App.database
     Markr::Worker::ImportWorker.repository = App.repository
     Markr::Worker::ImportWorker.aggregate_repository = App.aggregate_repository
   end
 
-  describe 'POST /import' do
-    before do
-      Sidekiq::Testing.fake!
-      Sidekiq::Worker.clear_all
-    end
+  # Helper: import data by running the worker directly (no Sidekiq/Redis needed)
+  def import_data(xml)
+    worker = Markr::Worker::ImportWorker.new
+    worker.perform(xml, 'text/xml+markr')
+  end
 
-    after do
-      Sidekiq::Worker.clear_all
-    end
+  describe 'POST /import' do
+    before { Sidekiq::Testing.fake! }
+    after { Sidekiq::Worker.clear_all }
 
     context 'with valid XML' do
       it 'returns 202 Accepted' do
@@ -114,12 +116,7 @@ RSpec.describe 'API' do
   end
 
   describe 'GET /results/:test_id/aggregate' do
-    before do
-      # Import data synchronously via inline mode for testing
-      Sidekiq::Testing.inline! do
-        post '/import', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
-      end
-    end
+    before { import_data(valid_xml) }
 
     context 'with existing test' do
       it 'returns 200' do
@@ -283,11 +280,7 @@ RSpec.describe 'API' do
     end
 
     context 'with data' do
-      before do
-        Sidekiq::Testing.inline! do
-          post '/import', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
-        end
-      end
+      before { import_data(valid_xml) }
 
       it 'returns list of tests' do
         get '/tests', {}, auth_header
@@ -328,11 +321,7 @@ RSpec.describe 'API' do
     end
 
     context 'with data' do
-      before do
-        Sidekiq::Testing.inline! do
-          post '/import', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
-        end
-      end
+      before { import_data(valid_xml) }
 
       it 'returns list of students' do
         get '/students', {}, auth_header
@@ -360,11 +349,7 @@ RSpec.describe 'API' do
   end
 
   describe 'GET /students/:student_number' do
-    before do
-      Sidekiq::Testing.inline! do
-        post '/import', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
-      end
-    end
+    before { import_data(valid_xml) }
 
     context 'with existing student' do
       it 'returns 200' do
@@ -407,11 +392,7 @@ RSpec.describe 'API' do
   end
 
   describe 'GET /students/:student_number/tests/:test_id' do
-    before do
-      Sidekiq::Testing.inline! do
-        post '/import', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
-      end
-    end
+    before { import_data(valid_xml) }
 
     context 'with existing result' do
       it 'returns 200' do
@@ -447,11 +428,7 @@ RSpec.describe 'API' do
   end
 
   describe 'GET /tests/:test_id/students' do
-    before do
-      Sidekiq::Testing.inline! do
-        post '/import', valid_xml, { 'CONTENT_TYPE' => 'text/xml+markr' }.merge(auth_header)
-      end
-    end
+    before { import_data(valid_xml) }
 
     context 'with existing test' do
       it 'returns 200' do

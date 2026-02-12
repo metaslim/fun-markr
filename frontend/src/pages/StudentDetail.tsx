@@ -14,19 +14,21 @@ export function StudentDetail() {
 
   useEffect(() => {
     if (!studentNumber) return;
+    let cancelled = false;
 
     addPageVisit(`/students/${studentNumber}`, `Student ${studentNumber}`);
 
     getStudent(studentNumber)
       .then((res) => {
-        setResults(res.results);
+        if (!cancelled) setResults(res.results);
       })
       .catch((err) => {
-        setError(err.message);
+        if (!cancelled) setError(err.message);
       })
       .finally(() => {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       });
+    return () => { cancelled = true; };
   }, [studentNumber, addPageVisit]);
 
   if (loading) {

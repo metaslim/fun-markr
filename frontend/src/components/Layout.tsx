@@ -45,7 +45,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [jobsPanelOpen, setJobsPanelOpen] = useState(false);
   const jobsPanelRef = useRef<HTMLDivElement>(null);
   const location = useLocation();
-  const { isOpen: isAssistantOpen, open: openAssistant, preloadModel, isModelLoading, loadingProgress } = useAssistantStore();
+  const { isOpen: isAssistantOpen, open: openAssistant, isModelLoading, loadingProgress } = useAssistantStore();
   const { jobs, hasActiveJobs, startPolling, clearCompleted } = useJobStore();
 
   // Start polling on mount if there are active jobs
@@ -55,10 +55,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Preload LLM model on page load
-  useEffect(() => {
-    preloadModel();
-  }, [preloadModel]);
+  // LLM model is lazy-loaded when assistant panel opens (see assistantStore.open)
 
   // Close jobs panel when clicking outside
   useEffect(() => {

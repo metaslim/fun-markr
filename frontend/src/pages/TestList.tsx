@@ -12,18 +12,20 @@ export function TestList() {
   const addPageVisit = useContextStore((state) => state.addPageVisit);
 
   useEffect(() => {
+    let cancelled = false;
     addPageVisit('/tests', 'All Tests');
 
     listTests()
       .then((res) => {
-        setTests(res.tests);
+        if (!cancelled) setTests(res.tests);
       })
       .catch((err) => {
-        setError(err.message);
+        if (!cancelled) setError(err.message);
       })
       .finally(() => {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       });
+    return () => { cancelled = true; };
   }, [addPageVisit]);
 
   if (loading) {

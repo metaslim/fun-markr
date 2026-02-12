@@ -77,6 +77,68 @@ GET /tests   → Read pre-computed aggregates from DB
 
 **Auth:** Basic auth `markr:secret` (except `/health`)
 
+## Performance & Concurrency Lessons
+
+These are hard-won lessons from a performance/concurrency review. Follow these patterns to avoid regressions.
+
+### Backend
+
+**Use upserts, not check-then-act:**
+- Never do `SELECT` then `INSERT/UPDATE` - this creates race conditions under concurrent Sidekiq workers
+- Use `insert_conflict` (Sequel's upsert) for all create-or-update operations
+- See `student_repository.rb` (`upsert_student`, `bulk_upsert`) and `test_result_repository.rb` (`upsert_result`) for examples
+
+**Batch database operations:**
+- Never loop `repository.save(result)` per item - this causes N+1 queries
+- Use `bulk_save` to wrap all inserts in a single transaction
+- Fetch related IDs in bulk (`find_ids`) instead of one-by-one lookups
+
+**Advisory locks for aggregation:**
+- Concurrent workers computing aggregates for the same test_id will race
+- Use PostgreSQL `pg_advisory_xact_lock` inside a transaction to serialize per test_id
+- Guard with `database_type == :postgres` check for SQLite compatibility
+
+**Connection pool sizing:**
+- `max_connections` in Sequel must match or exceed Sidekiq concurrency
+- Set via `DB_POOL_SIZE` env var, default 10
+
+**Avoid double parsing:**
+- XML validation + parsing should not build the DOM tree twice
+- Use SAX-based validation (stream-only, no tree) for the validate step
+- CSV double-parse is cheap and acceptable; XML is not
+
+**Pre-sort shared data:**
+- When multiple aggregators need sorted scores, sort once in `AggregateReport` and pass pre-sorted data
+- Aggregators should not redundantly sort
+
+**Paginate list endpoints:**
+- All endpoints returning unbounded lists must support `?limit=N&offset=M`
+- Applies to `/tests`, `/students`, and any future list routes
+
+### Frontend
+
+**Lazy-load expensive resources:**
+- Don't preload the LLM model on page mount - load it when the assistant panel opens
+- Heavy initializations should be deferred until the user actually needs them
+
+**Use exponential backoff for polling:**
+- Job status polling should use `setTimeout` with increasing intervals, not `setInterval`
+- Poll in parallel with `Promise.allSettled` instead of sequential `for` loops
+
+**Cancel async work on unmount:**
+- Use a `cancelled` flag pattern in `useEffect` cleanup to prevent state updates after unmount
+- Prevents React "setState on unmounted component" warnings
+
+**Cap unbounded collections:**
+- Zustand stores holding history (pageHistory, viewedTests) must have size caps
+- Without caps, long sessions will leak memory
+
+### Testing
+
+- Worker specs need Redis running for `Sidekiq::Testing.inline!` - 26 specs will fail without Redis
+- Mock `database` (with `transaction` and `database_type`) when testing worker aggregate computation
+- When changing repository APIs (e.g., `save` → `bulk_save`), update spec mocks to match
+
 ## Extension Guide
 
 See `SKILLS.md` for detailed guides on adding aggregators, loaders, API endpoints, frontend pages, and AI assistant tools.

@@ -1,471 +1,223 @@
-# Skills
-
-How to extend this codebase.
-
-## Design Patterns
-
-| Pattern | Location | Purpose |
-|---------|----------|---------|
-| **Strategy** | `lib/markr/aggregator/` | Pluggable stats calculators |
-| **Factory** | `lib/markr/loader/loader_factory.rb` | Select parser by content-type |
-| **Registry** | `lib/markr/aggregator/registry.rb` | Configure aggregators without code changes |
-| **Repository** | `lib/markr/repository/` | Abstract database access |
-| **Middleware** | `lib/markr/middleware/` | Cross-cutting concerns (Auth, CORS) |
-| **Worker** | `lib/markr/worker/` | Async job processing (uses sidekiq-status for tracking) |
-
-## Add New Aggregator (Strategy Pattern)
-
-Aggregators inherit from `Aggregatable` and implement `#key` and `#calculate(scores)`.
-
-Example: Add `median` aggregator.
-
-1. Create `lib/markr/aggregator/median.rb`:
-
-```ruby
-require_relative 'aggregatable'
-
-module Markr
-  module Aggregator
-    class Median < Aggregatable
-      def key
-        'median'  # JSON key in output
-      end
-
-      def calculate(scores)
-        return 0.0 if scores.empty?
-        sorted = scores.sort
-        mid = sorted.length / 2
-        sorted.length.odd? ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2.0
-      end
-    end
-  end
-end
-```
-
-2. Register in `lib/markr.rb`:
-```ruby
-require_relative 'markr/aggregator/median'
-```
-
-3. Register in the aggregator registry (`lib/markr/aggregator/registry.rb`):
-```ruby
-DEFAULT_AGGREGATORS = [
-  Mean,
-  Median,  # Add here
-  # ...
-].freeze
-```
-
-Or register at runtime:
-```ruby
-Markr::Worker::ImportWorker.aggregator_registry.register(Median)
-```
-
-No database migration needed - aggregates stored as JSON.
-
-## Add New Loader (Factory Pattern)
-
-Loaders inherit from `Loadable` and implement `#parse(content)`.
-
-1. Create `lib/markr/loader/json_loader.rb`:
-```ruby
-require_relative 'loadable'
-require_relative '../model/test_result'
-
-module Markr
-  module Loader
-    class JsonLoader < Loadable
-      def parse(content)
-        data = JSON.parse(content)
-        data['results'].map { |r| Model::TestResult.new(**r) }
-      end
-    end
-  end
-end
-```
-
-2. Register in `lib/markr/loader/loader_factory.rb`:
-```ruby
-LOADERS = {
-  'text/xml+markr' => XmlLoader,
-  'application/json+markr' => JsonLoader  # Add here
-}.freeze
-```
-
-3. Register in `lib/markr.rb` and add tests
-
-## Add New Middleware
-
-Middleware handles cross-cutting concerns (auth, CORS, logging).
-
-1. Create `lib/markr/middleware/logging.rb`:
-```ruby
-module Markr
-  module Middleware
-    class Logging
-      def initialize(app)
-        @app = app
-      end
-
-      def call(env)
-        start = Time.now
-        status, headers, body = @app.call(env)
-        puts "[#{status}] #{env['REQUEST_METHOD']} #{env['PATH_INFO']} (#{Time.now - start}s)"
-        [status, headers, body]
-      end
-    end
-  end
-end
-```
-
-2. Register in `app.rb`:
-```ruby
-use Markr::Middleware::Logging
-```
-
-3. Register in `lib/markr.rb` and add tests
-
-## Dependency Injection (Testing)
-
-Repositories and registries injected via class-level setters:
-
-```ruby
-# In tests
-before do
-  Markr::Worker::ImportWorker.repository = mock_repo
-  Markr::Worker::ImportWorker.aggregator_registry = custom_registry
-end
-
-after do
-  Markr::Worker::ImportWorker.repository = nil  # Reset
-  Markr::Worker::ImportWorker.aggregator_registry = nil
-end
-```
-
-## Add New API Endpoint
-
-1. Add route in `app.rb`
-2. Add repository method if needed
-3. Add integration test
-
-## Add Frontend Page
-
-1. Create page in `frontend/src/pages/`
-2. Add route in `frontend/src/App.tsx`
-3. Add API function in `frontend/src/services/api.ts`
-4. Update types in `frontend/src/types/index.ts`
-
-## Database Schema
-
-```
-students
-├── id (PK)
-├── student_number (unique)
-├── name
-└── timestamps
-
-test_results
-├── id (PK)
-├── student_id (FK → students)
-├── test_id
-├── marks_available
-├── marks_obtained
-├── scanned_on
-└── timestamps
-
-test_aggregates
-├── test_id (unique)
-└── data (JSON blob)
-```
-
-## Duplicate Handling
-
-When importing, if the same student+test combination already exists:
-- Keep the **highest** `marks_obtained`
-- Keep the **highest** `marks_available`
-
-This is handled via upsert (`insert_conflict`) with CASE expressions:
-```ruby
-# test_result_repository.rb → upsert_result
-obtained_expr = Sequel.lit(
-  "CASE WHEN excluded.marks_obtained > test_results.marks_obtained " \
-  "THEN excluded.marks_obtained ELSE test_results.marks_obtained END"
-)
-```
-
-This handles the scenario where a paper gets folded and some questions are covered during scanning, resulting in a lower `marks_available`. The system keeps the best of both values.
-
-## Key Files
-
-| File | Purpose |
-|------|---------|
-| `app.rb` | HTTP routes |
-| `lib/markr/middleware/auth.rb` | Authentication middleware |
-| `lib/markr/middleware/cors.rb` | CORS middleware |
-| `lib/markr/worker/import_worker.rb` | Async processing |
-| `lib/markr/loader/` | Parsers (XML, etc.) |
-| `lib/markr/aggregator/` | Stats calculations |
-| `lib/markr/aggregator/registry.rb` | Aggregator configuration |
-| `lib/markr/repository/` | Database operations |
-| `lib/markr/repository/base_repository.rb` | Base class with error handling |
-| `lib/markr/repository/test_result_repository.rb` | Results + duplicate handling |
-| `db/migrations/` | Schema |
-| `frontend/src/pages/` | React pages |
-| `frontend/src/services/api.ts` | API client |
-| `frontend/src/components/AssistantPanel.tsx` | AI assistant |
-| `frontend/src/components/Layout.tsx` | App shell, nav, Jobs dropdown |
-| `frontend/src/components/Tooltip.tsx` | Tooltip component |
-| `frontend/src/stores/assistantStore.ts` | AI state |
-| `frontend/src/stores/jobStore.ts` | Import job tracking (Zustand + persist) |
-
-## AI Assistant
-
-The assistant uses **Qwen 2.5 7B** via WebLLM with action-based tool calling.
-
-### Architecture
-
-```
-src/lib/tools/
-├── index.ts              # Tool registry + helper functions
-├── types.ts              # Tool & ActionResult interfaces
-├── listTests.ts          # Each tool in its own file
-├── getTest.ts
-├── getTopStudents.ts
-├── getStrugglingStudents.ts
-├── listStudents.ts
-├── getStudent.ts
-├── searchStudent.ts
-├── getTestStats.ts
-├── getClassOverview.ts
-├── findAtRiskStudents.ts
-├── getHardestTest.ts
-├── getEasiestTest.ts
-├── compareStudentToClass.ts
-└── getPassingStudents.ts
-```
-
-### Add New Tool
-
-1. Create `frontend/src/lib/tools/myTool.ts`:
-
-```typescript
-import { someApi } from '../../services/api';
-import type { Tool } from './types';
-
-export const myTool: Tool = {
-  name: 'myTool',                              // Action name
-  description: '[ACTION:myTool:ARG] - what it does',  // For LLM prompt
-  loadingLabel: 'Doing something',             // Shown in UI while loading
-  execute: async (arg, navigate) => {
-    if (!arg) return { message: 'Error: No argument', suggestions: [] };
-
-    const data = await someApi(arg);
-    navigate('/relevant/path');
-
-    // Return markdown message + follow-up suggestions
-    return {
-      message: `### Result\n\n${data}`,
-      suggestions: ['Next action 1', 'Next action 2']
-    };
-  },
-};
-```
-
-2. Register in `frontend/src/lib/tools/index.ts`:
-
-```typescript
-import { myTool } from './myTool';
-
-const TOOLS: Tool[] = [
-  // ...existing tools
-  myTool,
-];
-```
-
-3. (Optional) Add trigger words to system prompt in `AssistantPanel.tsx`:
-
-```typescript
-## RULES
-// Add pattern matching for your tool
-12. "my keyword" / "another keyword" → [ACTION:myTool:ARG]
-```
-
-### Tool Interface
-
-```typescript
-interface Tool {
-  name: string;           // Unique identifier
-  description: string;    // Goes into LLM system prompt
-  loadingLabel: string;   // Shown in thinking indicator
-  execute: (arg: string, navigate: (path: string) => void) => Promise<ActionResult>;
-}
-
-interface ActionResult {
-  message: string;        // Markdown to display
-  suggestions: string[];  // Follow-up buttons
-}
-```
-
-### Current Tools
-
-| Tool | Description |
-|------|-------------|
-| `listTests` | Show all tests |
-| `getTest:ID` | Show single test |
-| `getTopStudents:ID` | Top 5 performers |
-| `getStrugglingStudents:ID` | Bottom 5 performers |
-| `getPassingStudents:ID` | Students >= 50% |
-| `listStudents` | Show all students |
-| `getStudent:NUM` | Show student by number |
-| `searchStudent:NAME` | Search by name |
-| `getTestStats:ID` | Detailed statistics |
-| `getClassOverview` | Overall summary |
-| `findAtRiskStudents` | Failing multiple tests |
-| `getHardestTest` | Lowest average test |
-| `getEasiestTest` | Highest average test |
-| `compareStudentToClass:NUM` | Student vs class average |
-
-## Performance Patterns
-
-### Upsert Pattern (Avoiding Race Conditions)
-
-**Problem:** `SELECT` then `INSERT/UPDATE` races under concurrent Sidekiq workers.
-
-**Solution:** Use `insert_conflict` (PostgreSQL `ON CONFLICT`):
-
-```ruby
-# Student upsert
-@db[:students].insert_conflict(
-  target: :student_number,
-  update: { name: name_expr, updated_at: Time.now }
-).insert(student_number: num, name: name, created_at: Time.now, updated_at: Time.now)
-
-# Test result upsert (keep highest marks)
-@db[:test_results].insert_conflict(
-  target: [:student_id, :test_id],
-  update: { marks_obtained: max_expr, marks_available: max_expr, updated_at: Time.now }
-).insert(...)
-```
-
-**Requires:** Unique indexes on the conflict target columns. See `db/migrations/`.
-
-### Bulk Operations (Avoiding N+1)
-
-**Problem:** Looping `repository.save(result)` per-result causes N+1 queries.
-
-**Solution:** `bulk_save` wraps everything in one transaction:
-
-```ruby
-def bulk_save(results)
-  @db.transaction do
-    # 1. Batch upsert unique students
-    @student_repo.bulk_upsert(unique_students)
-    # 2. Fetch all student IDs in one query
-    student_map = @student_repo.find_ids(student_numbers)
-    # 3. Upsert each result (still individual, but in same transaction = 1 round trip)
-    results.each { |r| upsert_result(student_map[r.student_number], r) }
-  end
-end
-```
-
-### Advisory Locks (Preventing Aggregate Races)
-
-**Problem:** Two workers importing results for the same test compute aggregates simultaneously.
-
-**Solution:** PostgreSQL advisory lock scoped to test_id:
-
-```ruby
-def compute_aggregate(test_id)
-  database.transaction do
-    if database.database_type == :postgres
-      lock_key = Zlib.crc32(test_id.to_s) & 0x7FFFFFFF
-      database.run("SELECT pg_advisory_xact_lock(#{lock_key})")
-    end
-    # ... compute and save aggregate
-  end
-end
-```
-
-Lock is automatically released when the transaction commits/rolls back.
-
-### Efficient Score Fetching
-
-**Problem:** `find_by_test_id` JOINs and builds full TestResult objects just to get percentages.
-
-**Solution:** Compute percentages in SQL:
-
-```ruby
-def scores_for_test(test_id)
-  @db[:test_results].where(test_id: test_id).exclude(marks_available: 0)
-    .select_map(Sequel.lit("ROUND(CAST(marks_obtained AS FLOAT) / marks_available * 100, 2)"))
-end
-```
-
-### SAX Validation (Avoiding Double DOM Parse)
-
-**Problem:** XML validated by building DOM, then parsed again by building DOM = 2x memory + CPU.
-
-**Solution:** Validate with SAX (streaming, no tree):
-
-```ruby
-class StrictSaxHandler < Nokogiri::XML::SAX::Document
-  def error(string)
-    raise Nokogiri::XML::SyntaxError, string
-  end
-end
-
-def validate(content)
-  parser = Nokogiri::XML::SAX::Parser.new(StrictSaxHandler.new)
-  parser.parse(content)
-  true
-end
-```
-
-### Connection Pool Sizing
-
-Match Sequel `max_connections` to Sidekiq concurrency:
-
-```ruby
-Sequel.connect(url, max_connections: Integer(ENV.fetch('DB_POOL_SIZE', '10')))
-```
-
-### Frontend Performance
-
-| Pattern | Where | Why |
-|---------|-------|-----|
-| Lazy LLM load | `assistantStore.ts` | Don't download 4GB model on page mount |
-| Exponential backoff | `jobStore.ts` | `setTimeout` with increasing delay, not `setInterval` |
-| Parallel polling | `jobStore.ts` | `Promise.allSettled` instead of sequential loops |
-| Cancelled flag | All pages | `useEffect` cleanup sets `cancelled = true` to prevent stale setState |
-| Capped collections | `contextStore.ts` | `pageHistory` and `viewedTests` capped at 50 entries |
-
-## Common Pitfalls
-
-| Pitfall | Symptom | Fix |
-|---------|---------|-----|
-| SELECT-then-INSERT | Duplicate key errors under load | Use `insert_conflict` (upsert) |
-| N+1 in import loop | Slow imports, many queries | Use `bulk_save` with single transaction |
-| No advisory lock | Incorrect aggregates | `pg_advisory_xact_lock` per test_id |
-| Double DOM parse | 2x memory for large XML | SAX validation + DOM parse |
-| Unbounded lists | Slow API responses | Paginate with `?limit=&offset=` |
-| Fixed-interval polling | Hammers server | Exponential backoff with `setTimeout` |
-| No unmount cleanup | React warnings, stale state | `cancelled` flag in `useEffect` |
-| Preloading heavy resources | Slow initial page load | Lazy-load on first use |
-| Unbounded Zustand stores | Memory leak in long sessions | Cap collection sizes |
-| Pool < concurrency | Connection wait timeouts | `max_connections >= SIDEKIQ_CONCURRENCY` |
-
-## Testing
-
-```bash
-bundle exec rspec                    # All tests (needs Redis for worker/integration specs)
-bundle exec rspec spec/aggregator/   # Specific folder
-bundle exec rspec spec/loader/ spec/aggregator/ spec/report/  # Tests that don't need Redis
-bundle exec rspec --format doc       # Verbose
-```
-
-**Note:** 26 specs require Redis (worker specs with `Sidekiq::Testing.inline!` and integration specs). Run `docker-compose up redis` or install Redis locally to pass those.
-
-**Mocking the worker:** When testing ImportWorker, mock:
-- `repository` (with `bulk_save`, `scores_for_test`)
-- `aggregate_repository` (with `save`)
-- `database` (with `transaction` yielding, `database_type` returning `:sqlite`)
+# Engineering Practices
+
+Principles and practices for building reliable, performant software. Distilled from real production lessons.
+
+---
+
+## 1. Data Integrity Under Concurrency
+
+### Never check-then-act
+
+The most common concurrency bug in web applications: read the database to see if a record exists, then insert if it doesn't. Two concurrent requests can both see "not exists" and both try to insert, causing duplicates or constraint violations.
+
+**The fix is always the same: make the database enforce it.**
+
+Use upserts (`INSERT ... ON CONFLICT`), not application-level conditionals. Let the database's unique constraints be the source of truth. Your application code should declare intent ("save this record, update if it already exists") and let the database handle the atomicity.
+
+This applies everywhere: user creation, deduplication, counters, toggle states. If two requests can race, they will.
+
+### Use transactions as boundaries, not just safety nets
+
+A transaction isn't just "rollback if something fails." It's a **unit of work boundary**. When you have a sequence of writes that must be consistent with each other, wrap them in a single transaction. This is especially important for batch operations where partial completion would leave the system in a bad state.
+
+### Lock what you compute
+
+When multiple workers can compute the same derived data simultaneously, the last writer wins and intermediate computations are wasted. Use advisory locks or row-level locks scoped to the specific resource being computed. The lock should live inside a transaction so it's automatically released on commit or rollback.
+
+The key insight: lock at the **logical resource level** (e.g., per-entity), not at the table level. Coarse locks kill throughput.
+
+---
+
+## 2. Database Access Patterns
+
+### Eliminate N+1 queries
+
+The single most impactful performance fix in most applications. If you're calling the database inside a loop, you have an N+1 problem.
+
+Signs you have it:
+- `results.each { |r| repo.save(r) }` inside a loop
+- Looking up a related record for each item in a collection
+- Your import of 1,000 records makes 3,000 database calls
+
+The fix:
+- Batch inserts into a single transaction
+- Fetch related records in bulk (one query for all IDs) before the loop
+- Use joins or subqueries instead of sequential lookups
+
+### Fetch only what you need
+
+Don't build full domain objects when you only need a single derived value. If you need percentages, compute them in SQL. If you need counts, use `COUNT(*)`. Don't fetch 10 columns, instantiate objects, and extract one field.
+
+This matters most in aggregation and reporting paths, where you're processing many records and only need a narrow slice of each.
+
+### Paginate everything that can grow
+
+Every list endpoint will eventually have too many records. Add `limit` and `offset` (or cursor-based pagination) from day one. It's much harder to retrofit pagination than to include it upfront.
+
+Default to a reasonable page size (50-100) and enforce a maximum. This protects both your database and your frontend from unbounded responses.
+
+### Index with intention
+
+Indexes should match your actual query patterns, not just your schema. Composite indexes matter: an index on `(test_id, score)` serves queries that filter by test and sort by score in a single index scan. An index on just `test_id` would require a separate sort step.
+
+Add indexes for:
+- Foreign keys (most ORMs don't do this automatically)
+- Columns used in `WHERE`, `ORDER BY`, and `JOIN` clauses
+- Composite columns used together in queries
+- Columns in unique constraints (to back upserts)
+
+---
+
+## 3. Resource Management
+
+### Size your pools to match your concurrency
+
+If you have 10 concurrent workers and a connection pool of 5, half your workers are waiting for a database connection before they even start working. Pool starvation is a silent performance killer.
+
+**Rule of thumb:** connection pool size >= worker concurrency. Configure both from environment variables so they stay in sync across deployments.
+
+### Don't parse what you can stream
+
+When validating input before processing it, avoid building a full in-memory representation twice. If you need to validate XML, use a streaming parser (SAX) for validation and a DOM parser only for the actual data extraction. The validation step should be as cheap as possible since most inputs are valid.
+
+This principle extends beyond XML: validate CSV headers without parsing the body, check JSON structure with a schema validator before deserializing, validate image headers without loading pixels.
+
+### Pre-compute expensive results
+
+If the same expensive computation is needed by multiple consumers, do it once and share the result. Sort data once at the entry point, not in every function that touches it. Compute aggregates on write, not on every read.
+
+The trade-off is freshness vs. latency. For data that changes on import but is read frequently, pre-computing on write and caching the result is almost always the right call.
+
+---
+
+## 4. API Design
+
+### Accept the work, process it later
+
+For operations that take more than a couple hundred milliseconds, return immediately with a job ID and process asynchronously. This keeps your API responsive and lets clients poll or subscribe for completion.
+
+The pattern: `POST /import` returns `202 Accepted` with a `job_id`, the client polls `GET /jobs/:id` for status. The server does the heavy lifting in a background worker.
+
+### Validate early, fail fast
+
+Validate input format at the API boundary before queuing work. A malformed document should return `400 Bad Request` immediately, not get queued, processed, and fail in a background worker where the error is harder to surface.
+
+But keep validation lightweight: check syntax and required fields at the boundary, defer business rule validation to the processing layer.
+
+### Make error responses useful
+
+Every error response should include:
+- An appropriate HTTP status code (not 200 with an error body)
+- A human-readable error message
+- Enough context to debug without checking server logs
+
+---
+
+## 5. Frontend Performance
+
+### Defer expensive initialization
+
+Never load heavy resources (large models, complex libraries, big datasets) on page mount. Users may never interact with the feature that needs them. Load on first interaction: open a panel, click a button, navigate to a route.
+
+The difference between a 2-second and a 6-second initial load is often a single eager import.
+
+### Poll with backoff, not intervals
+
+Fixed-interval polling (`setInterval`) hammers your server at a constant rate regardless of whether anything has changed. Use exponential backoff: start with short intervals, increase them over time. Reset when the user takes an action.
+
+And poll in parallel when checking multiple jobs: `Promise.allSettled` not sequential `await` in a loop.
+
+### Clean up after yourself
+
+Every subscription, interval, timeout, and async operation started in a component must be cancelled when that component unmounts. Use a cancelled flag pattern or AbortController. Without cleanup, you get:
+- State updates on unmounted components (React warnings)
+- Memory leaks from accumulated listeners
+- Stale data from orphaned requests
+
+### Cap unbounded client-side collections
+
+Any in-memory store that grows over a session (navigation history, viewed items, cached responses) needs a size cap. Without one, a long session will eventually consume enough memory to degrade performance. Simple FIFO eviction (drop oldest when cap is reached) works for most cases.
+
+---
+
+## 6. Testing
+
+### Tests should not depend on infrastructure
+
+If your tests require Redis, PostgreSQL, or any external service running to pass, they are fragile and will fail in CI, on new developer machines, and during offline work.
+
+Use in-memory alternatives (SQLite for database tests), mocking libraries for external services, and the testing utilities that your dependencies provide (most background job libraries have a test mode that stubs external calls).
+
+### Test the unit, not the framework
+
+When testing a worker, call `worker.perform(args)` directly. Don't go through the framework's `perform_async` which adds middleware, serialization, and infrastructure dependencies you're not trying to test.
+
+When testing an API endpoint that needs data, insert it through the repository layer directly. Don't go through the import pipeline when you're testing the read path.
+
+### Mock at the boundary, not in the middle
+
+Inject dependencies through constructors or setters, then replace them with test doubles in tests. This keeps your mocks stable: they match the public interface of the dependency, not internal implementation details.
+
+When your production code changes (e.g., `save` becomes `bulk_save`), update the mock to match. If you find yourself constantly updating mocks, your abstractions may be too leaky.
+
+### Pre-existing failures are tech debt, not normal
+
+If your test suite has "known failures" that everyone ignores, your test suite is lying to you. Fix them or delete them. A test suite that cries wolf teaches developers to ignore failures, and real regressions slip through.
+
+---
+
+## 7. Design Patterns That Pay Off
+
+### Repository pattern for data access
+
+All database operations go through a repository. No raw SQL in controllers, workers, or business logic. This gives you one place to optimize queries, add caching, or swap databases.
+
+### Strategy + Registry for extensible computation
+
+When you need to add new calculations, parsers, or processors without modifying existing code: define a common interface, implement each variant as a separate class, and register them in a central registry. Adding a new one is just writing a class and registering it. No switch statements, no modification of existing code.
+
+### Factory for input handling
+
+When different inputs need different parsers (XML, CSV, JSON), use a factory that selects the right one based on the input type. The caller doesn't need to know which parser to use. The factory maps content types to implementations.
+
+### Dependency injection for testability
+
+Make dependencies configurable. Use constructor parameters or class-level setters so tests can inject mocks. This is the single most important pattern for testable code.
+
+---
+
+## 8. Operational Awareness
+
+### Configure through environment variables
+
+Concurrency levels, pool sizes, database URLs, feature flags - all should come from environment variables with sensible defaults. This lets you tune production without deploying code, and keeps configuration out of version control.
+
+### Make health checks real
+
+A `/health` endpoint that always returns 200 is useless. Check your actual dependencies: can you reach the database? Is the job queue accessible? Return degraded status when a dependency is down so your load balancer can act on it.
+
+### Log at decision points, not everywhere
+
+Log when you make a decision (skipped a record, chose a code path, retried an operation) not on every line of execution. Include context: what entity, what decision, what the inputs were. This makes debugging possible without making log storage unaffordable.
+
+---
+
+## Summary: The Short Version
+
+| Principle | In practice |
+|-----------|-------------|
+| Let the database enforce invariants | Upserts, unique constraints, foreign keys |
+| Batch database operations | One transaction, not N queries in a loop |
+| Lock what you compute | Advisory locks scoped to the resource |
+| Fetch only what you need | SQL projections, not full object hydration |
+| Paginate from day one | Default limits, enforced maximums |
+| Accept and process later | 202 + job ID for heavy operations |
+| Validate at the boundary | Fast format checks before queuing |
+| Defer heavy initialization | Load on first use, not on mount |
+| Poll with backoff | Exponential intervals, parallel checks |
+| Clean up on unmount | Cancelled flags, AbortController |
+| Cap client-side state | FIFO eviction for session collections |
+| Test without infrastructure | In-memory DBs, framework test modes |
+| Test the unit directly | Call the method, not the framework |
+| Inject dependencies | Constructors and setters for testability |
+| Configure through environment | Env vars with sensible defaults |

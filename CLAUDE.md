@@ -63,7 +63,6 @@ docker-compose down -v           # Stop + remove volumes
 **Adding AI Assistant tools:**
 1. Create tool file in `src/lib/tools/myTool.ts`
 2. Register in `src/lib/tools/index.ts`
-3. See `SKILLS.md` for full guide
 
 ## Architecture Quick Reference
 
@@ -135,10 +134,11 @@ These are hard-won lessons from a performance/concurrency review. Follow these p
 
 ### Testing
 
-- Worker specs need Redis running for `Sidekiq::Testing.inline!` - 26 specs will fail without Redis
+- Use `sidekiq-status/testing/inline` to stub Redis storage in specs
 - Mock `database` (with `transaction` and `database_type`) when testing worker aggregate computation
 - When changing repository APIs (e.g., `save` → `bulk_save`), update spec mocks to match
+- Call `worker.perform()` directly for unit tests instead of going through `perform_async`
 
-## Extension Guide
+## Engineering Practices
 
-See `SKILLS.md` for detailed guides on adding aggregators, loaders, API endpoints, frontend pages, and AI assistant tools.
+See `SKILLS.md` for general engineering practices on performance, concurrency, testing, and API design.
